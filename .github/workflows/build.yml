@@ -1,0 +1,131 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'remote/**'
+      - '**.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: build
+  cancel-in-progress: true
+
+env:
+  XRAY_LIB_VERSION: v26.10.17
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Java
+        uses: actions/setup-java@v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          log-accepted-android-sdk-licenses: false
+          cmdline-tools-version: '14742923'
+          packages: 'platforms;android-37.0 build-tools;37.0.0 platform-tools'
+
+      - name: Download Xray core library
+        run: |
+          mkdir -p app/libs
+          curl -fsSL --retry 3 -o app/libs/libv2ray.aar \
+            "https://github.com/2dust/AndroidLibXrayLite/releases/download/${XRAY_LIB_VERSION}/libv2ray.aar"
+          ls -la app/libs
+
+      # The keystore in signing/ is encrypted (PKCS12, AES-256); only its password is secret.
+      - name: Prepare signing key
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_PASSWORD" ] && [ -f signing/release.p12 ]; then
+            if keytool -list -keystore signing/release.p12 -storetype PKCS12 -storepass "$KEYSTORE_PASSWORD" >/dev/null 2>&1; then
+              echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/signing/release.p12" >> "$GITHUB_ENV"
+              echo "KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+              echo "KEY_ALIAS=app" >> "$GITHUB_ENV"
+              echo "KEY_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+              echo "Signing with the release key."
+            else
+              echo "::warning::KEYSTORE_PASSWORD secret is wrong; building with a temporary key."
+            fi
+          else
+            echo "::warning::KEYSTORE_PASSWORD secret is missing; building with a temporary key."
+          fi
+
+      - name: Build
+        run: |
+          set -o pipefail
+          echo "sdk.dir=${ANDROID_HOME}" > local.properties
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace assembleClientRelease assembleAdminRelease 2>&1 | tee build.log
+
+      - name: Collect APKs
+        id: collect
+        run: |
+          mkdir -p out
+          for f in app/build/outputs/apk/client/release/*.apk; do
+            case "$f" in
+              *arm64-v8a*) cp "$f" out/app-arm64-v8a.apk ;;
+              *armeabi-v7a*) cp "$f" out/app-armeabi-v7a.apk ;;
+              *universal*) cp "$f" out/app-universal.apk ;;
+            esac
+          done
+          for f in app/build/outputs/apk/admin/release/*.apk; do
+            case "$f" in
+              *universal*) cp "$f" out/admin.apk ;;
+            esac
+          done
+          ls -la out
+          VERSION_NAME=$(grep -E '^VERSION_NAME=' app.properties | cut -d= -f2 | tr -d '[:space:]')
+          echo "version=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ steps.collect.outputs.version }}-b${{ github.run_number }}"
+          gh release create "$TAG" out/app-universal.apk out/app-arm64-v8a.apk out/app-armeabi-v7a.apk \
+            --title "$TAG" \
+            --notes "app-arm64-v8a.apk: most phones. app-armeabi-v7a.apk: older phones. app-universal.apk: works on all phones (bigger)." \
+            --latest
+          ADMIN_TAG="admin-b${{ github.run_number }}"
+          gh release create "$ADMIN_TAG" out/admin.apk --title "Admin $ADMIN_TAG" --notes "Admin app (private draft)." --draft
+          # keep only the newest admin draft
+          gh release list --limit 100 --json tagName,isDraft --jq '.[] | select(.isDraft) | .tagName' \
+            | grep '^admin-b' | grep -v "^${ADMIN_TAG}$" | while read t; do gh release delete "$t" --yes || true; done
+          # close old build-failure reports
+          gh issue list --state open --search "Build failed in:title" --json number --jq '.[].number' \
+            | while read n; do gh issue close "$n" --comment "Fixed in build ${{ github.run_number }}." || true; done
+
+      - name: Report failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "Build ${{ github.run_number }} failed (commit ${{ github.sha }})."
+            echo
+            echo '### Errors'
+            echo '```'
+            grep -E "^e: |error:|ERROR|What went wrong|FAILURE|Could not|Unresolved|> " build.log 2>/dev/null | grep -v "^> Task" | head -120 || true
+            echo '```'
+            echo
+            echo '### Last lines'
+            echo '```'
+            tail -n 120 build.log 2>/dev/null || echo "(no build.log)"
+            echo '```'
+          } > report.md
+          gh issue create --title "Build failed #${{ github.run_number }}" --body-file report.md || true

@@ -1,0 +1,45 @@
+{
+  "revision": 1,
+  "updatedAt": 0,
+  "free": {
+    "enabled": true,
+    "subscriptions": [],
+    "servers": [],
+    "hideKeywords": []
+  },
+  "pro": {
+    "enabled": true,
+    "title": "اشتراک پرو",
+    "description": "سرعت بیشتر، لوکیشن‌های بیشتر و بدون تبلیغ",
+    "priceText": "",
+    "buyText": "خرید اشتراک",
+    "buyLink": "",
+    "showcase": []
+  },
+  "ads": {
+    "enabled": false,
+    "showForPro": false,
+    "items": []
+  },
+  "notice": {
+    "enabled": false,
+    "id": "",
+    "title": "",
+    "message": "",
+    "buttonText": "",
+    "link": ""
+  },
+  "update": {
+    "latestVersionCode": 0,
+    "minVersionCode": 0,
+    "url": "",
+    "message": "نسخه‌ی جدید برنامه آماده است."
+  },
+  "support": {
+    "telegram": "",
+    "text": "پشتیبانی"
+  },
+  "testUrl": "https://www.gstatic.com/generate_204",
+  "mirrors": [],
+  "bypassIranDefault": true
+}
