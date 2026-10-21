@@ -1,13 +1,42 @@
 {
-  "revision": 12,
-  "updatedAt": 1792584342,
+  "revision": 13,
+  "updatedAt": 1792597337,
   "free": {
     "enabled": true,
     "sessionMinutes": 60,
     "subscriptions": [
-      "https:\/\/sab.lynch.ir\/sub\/djMsMTUwMjA5LDE3OTI1ODQzMDU.rEIVIGuZDzwy2dh0Ktie9-0JEtGEUCfLPjaErvDB7zE"
+      "https:\/\/sab.lynch.ir\/sub\/djMsMTM5MDk5LDE3OTI1OTcyNzE.R2JAmkA7IFUSk_3fvaDc-8L7M7Blaw3HAY5KpFgOWfM"
     ],
-    "servers": [],
+    "servers": [
+      {
+        "name": "",
+        "link": "vless:\/\/3230d264-53b1-41a8-a040-e5da0ee521c0@fun.zovip2.ir:443?encryption=none&security=tls&type=ws&headerType=none&path=%2Fapi%2Fv3%2Fpulse&host=fun.zovip2.ir&sni=fun.zovip2.ir&fp=chrome&vcn=fun.zovip2.ir&alpn=http%2F1.1#%E2%97%8F%20%F0%9F%9A%80%20Raket%20%C2%B7%20%D9%88%DB%8C%DA%98%D9%87%20%D9%86%D8%AA%20%D9%85%D9%84%DB%8C"
+      },
+      {
+        "name": "",
+        "link": "vless:\/\/3230d264-53b1-41a8-a040-e5da0ee521c0@goold.zovip2.ir:443?encryption=none&security=tls&type=ws&headerType=none&path=%2Fapi%2Fv3%2Fpulse&host=goold.zovip2.ir&sni=goold.zovip2.ir&fp=chrome&vcn=goold.zovip2.ir&alpn=http%2F1.1#%E2%97%8F%20%F0%9F%87%A9%F0%9F%87%AA%20%F0%9D%90%81%F0%9D%90%9E%F0%9D%90%AB%F0%9D%90%A5%F0%9D%90%A2%F0%9D%90%A7%20%C2%B7%20%D8%AA%D8%A7%D9%86%D9%84"
+      },
+      {
+        "name": "",
+        "link": "vless:\/\/3230d264-53b1-41a8-a040-e5da0ee521c0@goold.zovip2.ir:443?encryption=none&security=tls&type=ws&headerType=none&path=%2Fapi%2Fv3%2Fpulse&host=goold.zovip2.ir&sni=goold.zovip2.ir&fp=chrome&vcn=goold.zovip2.ir&alpn=http%2F1.1#%E2%97%8F%20%F0%9F%87%AB%F0%9F%87%B7%20%F0%9D%90%8F%F0%9D%90%9A%F0%9D%90%AB%F0%9D%90%A2%F0%9D%90%AC%20%C2%B7%20%D8%AA%D8%A7%D9%86%D9%84"
+      },
+      {
+        "name": "",
+        "link": "vless:\/\/3230d264-53b1-41a8-a040-e5da0ee521c0@goold.zovip2.ir:443?encryption=none&security=tls&type=ws&headerType=none&path=%2Fapi%2Fv3%2Fpulse&host=goold.zovip2.ir&sni=goold.zovip2.ir&fp=chrome&vcn=goold.zovip2.ir&alpn=http%2F1.1#%E2%97%8F%20%F0%9F%87%B3%F0%9F%87%B1%20%F0%9D%90%80%F0%9D%90%A6%F0%9D%90%AC%F0%9D%90%AD%F0%9D%90%9E%F0%9D%90%AB%F0%9D%90%9D%F0%9D%90%9A%F0%9D%90%A6%20%C2%B7%20%D8%AA%D8%A7%D9%86%D9%84"
+      },
+      {
+        "name": "",
+        "link": "vless:\/\/3230d264-53b1-41a8-a040-e5da0ee521c0@goold.zovip2.ir:443?encryption=none&security=tls&type=ws&headerType=none&path=%2Fapi%2Fv3%2Fpulse&host=goold.zovip2.ir&sni=goold.zovip2.ir&fp=chrome&vcn=goold.zovip2.ir&alpn=http%2F1.1#%E2%97%8F%20%F0%9F%87%B1%F0%9F%87%BB%20%F0%9D%90%8B%F0%9D%90%9A%F0%9D%90%AD%F0%9D%90%AF%F0%9D%90%A2%F0%9D%90%9A%20%C2%B7%20%F0%9D%9F%90%20%D8%AA%D8%A7%D9%86%D9%84"
+      },
+      {
+        "name": "",
+        "link": "vless:\/\/3230d264-53b1-41a8-a040-e5da0ee521c0@goold.zovip2.ir:443?encryption=none&security=tls&type=ws&headerType=none&path=%2Fapi%2Fv3%2Fpulse&host=goold.zovip2.ir&sni=goold.zovip2.ir&fp=chrome&vcn=goold.zovip2.ir&alpn=http%2F1.1#%E2%97%8F%20%F0%9F%87%AB%F0%9F%87%AE%20%F0%9D%90%85%F0%9D%90%A2%F0%9D%90%A7%F0%9D%90%A5%F0%9D%90%9A%F0%9D%90%A7%F0%9D%90%9D%20%C2%B7%20%D8%AA%D8%A7%D9%86%D9%84"
+      },
+      {
+        "name": "",
+        "link": "vless:\/\/3230d264-53b1-41a8-a040-e5da0ee521c0@gadfather.zovip2.ir:443?encryption=none&security=tls&type=ws&headerType=none&path=%2Fapi%2Fv3%2Fpulse&host=gadfather.zovip2.ir&sni=gadfather.zovip2.ir&fp=chrome&vcn=gadfather.zovip2.ir&alpn=http%2F1.1#%E2%97%8F%20%E2%98%81%EF%B8%8F%20%F0%9D%90%82%F0%9D%90%A5%F0%9D%90%A8%F0%9D%90%AE%F0%9D%90%9D%F0%9D%90%9F%F0%9D%90%A5%F0%9D%90%9A%F0%9D%90%AB%F0%9D%90%9E%20%C2%B7%20%D8%AA%D8%A7%D9%86%D9%84"
+      }
+    ],
     "hideKeywords": []
   },
   "pro": {
