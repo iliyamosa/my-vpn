@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import app.vpn.BuildConfig
 import app.vpn.R
 import app.vpn.common.AdItem
+import app.vpn.common.Backend
 import app.vpn.common.FreeConfig
 import app.vpn.common.ManualServer
 import app.vpn.common.RemoteConfig
@@ -65,7 +66,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private enum class Tab(val title: String) {
-    SERVERS("سرورها"), PRO("پرو"), ADS("تبلیغات"), NOTICE("اطلاعیه"), UPDATE("آپدیت"), OTHER("سایر")
+    STATS("آمار"), USERS("کاربران"), SERVERS("سرورها"), PRO("پرو"), ADS("تبلیغات"),
+    NOTICE("اطلاعیه"), UPDATE("آپدیت"), OTHER("سایر")
 }
 
 @Composable
@@ -182,10 +184,11 @@ private fun EditorScreen(activity: AdminActivity, store: AdminStore, onLogout: (
     var loaded by remember { mutableStateOf(RemoteConfig()) }
     var cfg by remember { mutableStateOf(RemoteConfig()) }
     var sha by remember { mutableStateOf<String?>(null) }
-    var tab by remember { mutableStateOf(Tab.SERVERS) }
+    var tab by remember { mutableStateOf(Tab.STATS) }
     var confirmExit by remember { mutableStateOf(false) }
 
     val dirty = cfg != loaded
+    val backend = remember(store.token, loaded.backendUrl) { BackendClient(store.token, Backend.baseUrl(loaded)) }
 
     fun load() {
         loading = true
@@ -206,16 +209,42 @@ private fun EditorScreen(activity: AdminActivity, store: AdminStore, onLogout: (
     fun save() {
         saving = true
         scope.launch {
+            var prepared = prepareForSave(cfg, loaded)
+            // 1. Live server: every open app gets the new settings right away.
+            val liveBackend = BackendClient(store.token, Backend.baseUrl(prepared))
+            var delivered = -1
+            var liveError: String? = null
+            if (liveBackend.available) {
+                try {
+                    val r = withContext(Dispatchers.IO) { liveBackend.putConfigWithRetry(prepared) }
+                    delivered = r.first
+                    prepared = r.second
+                } catch (e: Exception) {
+                    liveError = e.message
+                }
+            }
+            // 2. GitHub: permanent copy, used by apps that cannot reach the live server.
             try {
-                val prepared = prepareForSave(cfg, loaded)
                 val newSha = withContext(Dispatchers.IO) { client.saveConfig(prepared, sha) }
                 sha = newSha
                 loaded = prepared
                 cfg = prepared
                 withContext(Dispatchers.IO) { client.purgeCdn() }
-                activity.toast("ذخیره شد. گوشی کاربران حداکثر تا چند دقیقه‌ی دیگر تغییرات را می‌گیرند.")
+                activity.toast(
+                    when {
+                        delivered >= 0 -> "ذخیره شد و همین الان برای $delivered کاربر آنلاین ارسال شد. بقیه با باز کردن برنامه می‌گیرند.".faDigits()
+                        liveError != null -> "در GitHub ذخیره شد، ولی سرور مرکزی در دسترس نبود ($liveError). کاربران تا چند دقیقه‌ی دیگر می‌گیرند."
+                        else -> "ذخیره شد. کاربران تا چند دقیقه‌ی دیگر تغییرات را می‌گیرند."
+                    },
+                )
             } catch (e: Exception) {
-                activity.toast(e.message ?: "ذخیره انجام نشد.")
+                if (delivered >= 0) {
+                    loaded = prepared
+                    cfg = prepared
+                    activity.toast("برای کاربران ارسال شد، ولی ذخیره در GitHub انجام نشد: ${e.message}. یک بار «بارگذاری دوباره» و دوباره «ذخیره» بزنید.")
+                } else {
+                    activity.toast(e.message ?: "ذخیره انجام نشد.")
+                }
             }
             saving = false
         }
@@ -301,12 +330,14 @@ private fun EditorScreen(activity: AdminActivity, store: AdminStore, onLogout: (
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 when (tab) {
+                    Tab.STATS -> StatsTab(backend, loaded)
+                    Tab.USERS -> UsersTab(backend)
                     Tab.SERVERS -> ServersTab(activity, cfg) { cfg = it }
                     Tab.PRO -> ProTab(cfg) { cfg = it }
                     Tab.ADS -> AdsTab(activity, client, cfg) { cfg = it }
                     Tab.NOTICE -> NoticeTab(cfg) { cfg = it }
                     Tab.UPDATE -> UpdateTab(client, cfg) { cfg = it }
-                    Tab.OTHER -> OtherTab(store, cfg, onChange = { cfg = it }, onLogout = onLogout)
+                    Tab.OTHER -> OtherTab(activity, store, cfg, onChange = { cfg = it }, onLogout = onLogout)
                 }
                 Spacer(Modifier.height(40.dp))
             }
@@ -339,7 +370,7 @@ private fun prepareForSave(cfg: RemoteConfig, loaded: RemoteConfig): RemoteConfi
         notice = notice,
         ads = cfg.ads.copy(items = ads),
         free = cfg.free.copy(
-            subscriptions = cfg.free.subscriptions.map { it.trim() }.filter { it.isNotBlank() },
+            subscriptions = cfg.free.subscriptions.map { it.trim() }.filter { it.isNotBlank() }.distinct(),
             servers = cfg.free.servers.map { it.copy(name = it.name.trim(), link = it.link.trim()) }.filter { it.link.isNotBlank() },
             hideKeywords = cfg.free.hideKeywords.map { it.trim() }.filter { it.isNotBlank() },
         ),
@@ -363,6 +394,15 @@ private fun ServersTab(activity: AdminActivity, cfg: RemoteConfig, onChange: (Re
         SwitchRow("سرورهای رایگان فعال باشد", "اگر خاموش کنید فقط کاربران پرو می‌توانند وصل شوند.", free.enabled) {
             setFree(free.copy(enabled = it))
         }
+        Spacer(Modifier.height(8.dp))
+        Field("مدت هر اتصال رایگان (دقیقه)", free.sessionMinutes.toString(), { v ->
+            setFree(free.copy(sessionMinutes = (v.filter { it.isDigit() }.take(4).toIntOrNull() ?: 0).coerceAtMost(1440)))
+        }, number = true)
+        Text(
+            "بعد از این مدت اتصال کاربر رایگان خودکار قطع می‌شود و باید برنامه را باز کند و دوباره وصل شود (و دوباره تبلیغ ببیند). ۰ = بدون محدودیت.",
+            style = MaterialTheme.typography.bodySmall,
+            color = AppColors.TextSecondary,
+        )
     }
 
     AppCard {
@@ -519,11 +559,11 @@ private fun AdsTab(activity: AdminActivity, client: GitHubClient, cfg: RemoteCon
     // The upload finishes later; always apply its result to the newest settings, not a stale copy.
     val latestCfg by rememberUpdatedState(cfg)
     val latestOnChange by rememberUpdatedState(onChange)
-    fun applyImageUrl(index: Int, url: String) {
+    fun applyMediaUrl(index: Int, url: String, video: Boolean) {
         val c = latestCfg
         if (index !in c.ads.items.indices) return
         val items = c.ads.items.toMutableList()
-        items[index] = items[index].copy(imageUrl = url)
+        items[index] = if (video) items[index].copy(videoUrl = url) else items[index].copy(imageUrl = url)
         latestOnChange(c.copy(ads = c.ads.copy(items = items)))
     }
 
@@ -558,8 +598,8 @@ private fun AdsTab(activity: AdminActivity, client: GitHubClient, cfg: RemoteCon
                                 if (bytes == null) {
                                     activity.toast("خواندن عکس ممکن نشد.")
                                 } else {
-                                    val url = withContext(Dispatchers.IO) { client.uploadAdImage(bytes, "jpg") }
-                                    applyImageUrl(i, url)
+                                    val url = withContext(Dispatchers.IO) { client.uploadMedia(bytes, "jpg") }
+                                    applyMediaUrl(i, url, video = false)
                                     activity.toast("عکس آپلود شد. فراموش نکنید «ذخیره» را بزنید.")
                                 }
                             } catch (e: Exception) {
@@ -578,6 +618,46 @@ private fun AdsTab(activity: AdminActivity, client: GitHubClient, cfg: RemoteCon
                 }
                 Text("انتخاب عکس از گالری و آپلود")
             }
+            Spacer(Modifier.height(10.dp))
+            Field("لینک ویدیو mp4 (اختیاری)", ad.videoUrl, { setAd(ad.copy(videoUrl = it.trim())) }, ltr = true)
+            OutlinedButton(
+                onClick = {
+                    activity.pickVideo { uri ->
+                        if (uri == null) return@pickVideo
+                        uploadingIndex = i
+                        scope.launch {
+                            try {
+                                val (bytes, err) = withContext(Dispatchers.IO) { activity.readVideoForUpload(uri, 20 * 1024 * 1024) }
+                                if (bytes == null) {
+                                    activity.toast(err ?: "خواندن ویدیو ممکن نشد.")
+                                } else {
+                                    activity.toast("در حال آپلود ویدیو… (بسته به اینترنت ممکن است چند دقیقه طول بکشد)")
+                                    val url = withContext(Dispatchers.IO) { client.uploadMedia(bytes, "mp4") }
+                                    applyMediaUrl(i, url, video = true)
+                                    activity.toast("ویدیو آپلود شد. فراموش نکنید «ذخیره» را بزنید.")
+                                }
+                            } catch (e: Exception) {
+                                activity.toast(e.message ?: "آپلود انجام نشد.")
+                            }
+                            uploadingIndex = -1
+                        }
+                    }
+                },
+                enabled = uploadingIndex == -1,
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                if (uploadingIndex == i) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text("انتخاب ویدیو از گالری و آپلود (تا ۲۰ مگابایت)")
+            }
+            Text(
+                "اگر ویدیو بگذارید، به جای عکس پخش می‌شود. «ثانیه‌ی نمایش» را هم‌اندازه‌ی ویدیو بگذارید. " +
+                    "برنامه ویدیو را از قبل روی گوشی کاربر دانلود می‌کند تا بدون معطلی پخش شود.",
+                style = MaterialTheme.typography.bodySmall,
+                color = AppColors.TextSecondary,
+            )
             Spacer(Modifier.height(6.dp))
             Field("لینک کلیک (مثلاً کانال تلگرام)", ad.link, { setAd(ad.copy(link = it.trim())) }, ltr = true)
             Spacer(Modifier.height(6.dp))
@@ -670,7 +750,35 @@ private fun UpdateTab(client: GitHubClient, cfg: RemoteConfig, onChange: (Remote
 }
 
 @Composable
-private fun OtherTab(store: AdminStore, cfg: RemoteConfig, onChange: (RemoteConfig) -> Unit, onLogout: () -> Unit) {
+private fun OtherTab(activity: AdminActivity, store: AdminStore, cfg: RemoteConfig, onChange: (RemoteConfig) -> Unit, onLogout: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var testResult by remember { mutableStateOf<String?>(null) }
+    AppCard {
+        Text("سرور مرکزی (Cloudflare)", style = MaterialTheme.typography.titleSmall)
+        Text(
+            "برای اعمال لحظه‌ای تنظیمات، آمار و لیست کاربران. اگر خالی بماند، آدرس داخل برنامه استفاده می‌شود:\n" +
+                BuildConfig.BACKEND_URL.ifBlank { "(تنظیم نشده)" },
+            style = MaterialTheme.typography.bodySmall,
+            color = AppColors.TextSecondary,
+        )
+        Spacer(Modifier.height(8.dp))
+        Field("آدرس سرور مرکزی (مثلاً وقتی دامنه خریدید)", cfg.backendUrl, { onChange(cfg.copy(backendUrl = it.trim())) }, ltr = true)
+        OutlinedButton(
+            onClick = {
+                testResult = "در حال بررسی…"
+                scope.launch {
+                    testResult = try {
+                        val online = withContext(Dispatchers.IO) { BackendClient(store.token, Backend.baseUrl(cfg)).ping() }
+                        "✓ سرور مرکزی کار می‌کند. کاربران آنلاین: $online".faDigits()
+                    } catch (e: Exception) {
+                        "✗ ${e.message ?: "در دسترس نیست"}"
+                    }
+                }
+            },
+            shape = RoundedCornerShape(12.dp),
+        ) { Text("بررسی اتصال") }
+        testResult?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary) }
+    }
     AppCard {
         Text("پشتیبانی", style = MaterialTheme.typography.titleSmall)
         Spacer(Modifier.height(8.dp))

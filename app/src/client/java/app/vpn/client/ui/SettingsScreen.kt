@@ -133,6 +133,17 @@ fun SettingsScreen(activity: MainActivity, onBack: () -> Unit, onSettingsChanged
             }
 
             AppCard {
+                Text("حریم خصوصی", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "این برنامه سایت‌هایی که باز می‌کنید، IP و ترافیک شما را ذخیره نمی‌کند. " +
+                        "فقط آمار ناشناس (مدل گوشی، نسخه‌ی برنامه، تعداد اتصال و نظر شما درباره‌ی سرورها) برای بهتر کردن سرویس ارسال می‌شود.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = AppColors.TextSecondary,
+                )
+            }
+
+            AppCard {
                 Text("درباره", style = MaterialTheme.typography.titleSmall)
                 Spacer(Modifier.height(6.dp))
                 Text("نسخه‌ی برنامه: ${BuildConfig.VERSION_NAME}".faDigits(), style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)

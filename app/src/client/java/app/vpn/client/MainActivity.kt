@@ -13,7 +13,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import app.vpn.client.data.Analytics
 import app.vpn.client.data.ClientStore
+import app.vpn.client.data.Realtime
 import app.vpn.client.data.ServerRepository
 import app.vpn.client.ui.ClientApp
 import app.vpn.ui.AppTheme
@@ -40,6 +42,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         ServerRepository.loadCache(this)
+        Realtime.start(this)
+        if (savedInstanceState == null) Analytics.track(this, "open")
         askNotificationPermissionOnce()
         setContent {
             AppTheme {
@@ -51,10 +55,12 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         resumed.value = true
+        AppScope.foreground.value = true
     }
 
     override fun onPause() {
         resumed.value = false
+        AppScope.foreground.value = false
         super.onPause()
     }
 

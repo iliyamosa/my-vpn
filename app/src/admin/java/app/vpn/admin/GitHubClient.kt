@@ -76,11 +76,53 @@ class GitHubClient(private val token: String, val repo: String, val branch: Stri
         return putFile(ConfigSource.CONFIG_PATH, text.toByteArray(Charsets.UTF_8), sha, "Update app settings (revision ${config.revision})")
     }
 
-    /** Uploads an image for an ad and returns a public URL for it. */
-    fun uploadAdImage(bytes: ByteArray, ext: String): String {
-        val name = "remote/ads/ad_${System.currentTimeMillis()}.$ext"
-        putFile(name, bytes, null, "Add ad image")
-        return "https://cdn.jsdelivr.net/gh/$repo@$branch/$name"
+    /**
+     * Uploads an ad image or video (up to ~20 MB) and returns a public URL pinned to the new commit,
+     * so it is served immediately and never stale. Uses the Git data API, which handles big files.
+     */
+    fun uploadMedia(bytes: ByteArray, ext: String): String {
+        val path = "remote/ads/ad_${System.currentTimeMillis()}.$ext"
+        val h = headers() + ("Content-Type" to "application/json")
+
+        fun call(method: String, apiPath: String, body: JSONObject?, timeout: Int = 30_000): JSONObject {
+            val r = Http.request(
+                api(apiPath), method = method, headers = h,
+                body = body?.toString()?.toByteArray(Charsets.UTF_8), timeoutMs = timeout,
+            )
+            if (!r.ok) throw HttpException(errorMessage(r.code, r.text))
+            return JSONObject(r.text)
+        }
+
+        // 1. the file itself
+        val blobBody = JSONObject().put("encoding", "base64").put("content", Base64.encodeToString(bytes, Base64.NO_WRAP))
+        val blobSha = call("POST", "git/blobs", blobBody, timeout = 180_000).getString("sha")
+
+        // 2-5. add it to a new commit on the branch (retry if the branch moved meanwhile)
+        repeat(3) { attempt ->
+            val head = call("GET", "git/ref/heads/$branch", null).getJSONObject("object").getString("sha")
+            val baseTree = call("GET", "git/commits/$head", null).getJSONObject("tree").getString("sha")
+            val tree = call(
+                "POST", "git/trees",
+                JSONObject().put("base_tree", baseTree).put(
+                    "tree",
+                    org.json.JSONArray().put(
+                        JSONObject().put("path", path).put("mode", "100644").put("type", "blob").put("sha", blobSha),
+                    ),
+                ),
+            ).getString("sha")
+            val commit = call(
+                "POST", "git/commits",
+                JSONObject().put("message", "Add ad media").put("tree", tree).put("parents", org.json.JSONArray().put(head)),
+            ).getString("sha")
+            val r = Http.request(
+                api("git/refs/heads/$branch"), method = "PATCH", headers = h,
+                body = JSONObject().put("sha", commit).put("force", false).toString().toByteArray(Charsets.UTF_8),
+                timeoutMs = 30_000,
+            )
+            if (r.ok) return "https://cdn.jsdelivr.net/gh/$repo@$commit/$path"
+            if (r.code != 422 || attempt == 2) throw HttpException(errorMessage(r.code, r.text))
+        }
+        throw HttpException("آپلود انجام نشد.")
     }
 
     private fun putFile(path: String, bytes: ByteArray, sha: String?, message: String): String {

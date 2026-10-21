@@ -62,6 +62,14 @@ object CoreManager {
         ""
     }
 
+    /** Real delay through the running connection, in ms, or -1 on failure. */
+    fun measureCurrentDelay(url: String): Long = try {
+        val c = controller
+        if (c == null || !c.isRunning) -1L else c.measureDelay(url)
+    } catch (e: Exception) {
+        -1L
+    }
+
     /** Real delay through a server, in ms, or -1 on failure. Works without the VPN running. */
     fun measureDelay(context: Context, testConfig: String, url: String): Long = try {
         init(context)

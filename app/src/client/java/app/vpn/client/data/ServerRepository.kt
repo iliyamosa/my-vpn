@@ -1,8 +1,10 @@
 package app.vpn.client.data
 
 import android.content.Context
+import app.vpn.client.AppScope
 import app.vpn.client.vpn.CoreManager
 import app.vpn.client.vpn.XrayConfigBuilder
+import app.vpn.common.Backend
 import app.vpn.common.ConfigSource
 import app.vpn.common.Http
 import app.vpn.common.LinkParser
@@ -127,7 +129,9 @@ object ServerRepository {
     }
 
     private suspend fun refreshConfig(context: Context) = coroutineScope {
-        val urls = (ConfigSource.defaultUrls() + config.value.mirrors).distinct()
+        val backend = Backend.baseUrl(config.value)
+        val urls = (listOfNotNull(backend.takeIf { it.isNotBlank() }?.let { "$it/config" }) +
+            ConfigSource.defaultUrls() + config.value.mirrors).distinct()
         if (urls.isEmpty()) return@coroutineScope
         val viaTunnel = Http.tunnelSocksPort > 0
         val bust = System.currentTimeMillis() / 60_000
@@ -142,10 +146,31 @@ object ServerRepository {
             }
         }.awaitAll().filterNotNull()
         val best = results.maxByOrNull { it.revision } ?: return@coroutineScope
-        if (best.revision >= config.value.revision) {
-            config.value = best
-            ClientStore(context).writeFile(ClientStore.FILE_CONFIG, best.toJsonString())
-            launch(Dispatchers.IO) { AdCache.prefetch(context, best) }
+        applyRemoteConfig(context, best, refreshServers = false)
+    }
+
+    /**
+     * Applies newer settings (from a download or pushed live by the backend).
+     * Reloads the free server list when its sources changed.
+     */
+    fun applyRemoteConfig(context: Context, cfg: RemoteConfig, refreshServers: Boolean = true) {
+        val old = config.value
+        if (cfg.revision < old.revision) return
+        if (cfg == old) return
+        config.value = cfg
+        ClientStore(context).writeFile(ClientStore.FILE_CONFIG, cfg.toJsonString())
+        AppScope.scope.launch { AdCache.prefetch(context, cfg) }
+        val freeChanged = cfg.free.subscriptions != old.free.subscriptions ||
+            cfg.free.servers != old.free.servers ||
+            cfg.free.hideKeywords != old.free.hideKeywords
+        if (refreshServers && freeChanged) {
+            AppScope.scope.launch {
+                try {
+                    refreshFree(context)
+                } catch (e: Exception) {
+                    // keep old list
+                }
+            }
         }
     }
 
@@ -311,18 +336,91 @@ object ServerRepository {
     }
 }
 
-/** Downloads ad images ahead of time so they show instantly before connecting. */
+/**
+ * Downloads ad images and videos ahead of time. Ads play before the VPN connects, when many
+ * sites are unreachable, so media is fetched earlier (usually through the VPN) and kept on the phone.
+ */
 object AdCache {
+    private const val MAX_VIDEO_BYTES = 30 * 1024 * 1024
+    private val running = java.util.concurrent.atomic.AtomicBoolean(false)
+
     fun fileFor(context: Context, url: String): File {
         val dir = File(context.filesDir, "ads").apply { mkdirs() }
         return File(dir, sha1(url))
     }
 
+    fun isCached(context: Context, url: String): Boolean {
+        val f = fileFor(context, url)
+        return f.exists() && f.length() > 0
+    }
+
     fun prefetch(context: Context, cfg: RemoteConfig) {
-        val viaTunnel = Http.tunnelSocksPort > 0
-        cfg.ads.activeItems().map { it.imageUrl }.filter { it.isNotBlank() }.distinct().forEach { url ->
-            val f = fileFor(context, url)
-            if (!f.exists() || f.length() == 0L) Http.download(url, f, viaTunnel = viaTunnel)
+        if (!running.compareAndSet(false, true)) return
+        try {
+            val viaTunnel = Http.tunnelSocksPort > 0
+            val items = cfg.ads.activeItems()
+            val wanted = (items.map { it.imageUrl } + items.map { it.videoUrl }).filter { it.isNotBlank() }.distinct()
+            wanted.forEach { url ->
+                val f = fileFor(context, url)
+                if (!f.exists() || f.length() == 0L) downloadLarge(url, f, viaTunnel)
+            }
+            // Remove media of ads that no longer exist.
+            val keep = wanted.map { fileFor(context, it).name }.toSet()
+            File(context.filesDir, "ads").listFiles()?.forEach { if (it.name !in keep) it.delete() }
+        } finally {
+            running.set(false)
+        }
+    }
+
+    /** Streams to disk (videos are too big to hold in memory). */
+    private fun downloadLarge(url: String, dest: File, viaTunnel: Boolean): Boolean {
+        val tmp = File(dest.parentFile, dest.name + ".part")
+        return try {
+            val proxy = if (viaTunnel && Http.tunnelSocksPort > 0) {
+                java.net.Proxy(java.net.Proxy.Type.SOCKS, java.net.InetSocketAddress("127.0.0.1", Http.tunnelSocksPort))
+            } else {
+                java.net.Proxy.NO_PROXY
+            }
+            var current = url
+            var conn: java.net.HttpURLConnection
+            var redirects = 0
+            while (true) {
+                conn = java.net.URL(current).openConnection(proxy) as java.net.HttpURLConnection
+                conn.instanceFollowRedirects = false
+                conn.connectTimeout = 15_000
+                conn.readTimeout = 30_000
+                conn.setRequestProperty("User-Agent", Http.DEFAULT_UA)
+                val code = conn.responseCode
+                if (code in 300..399 && redirects < 5) {
+                    current = java.net.URL(java.net.URL(current), conn.getHeaderField("Location")).toString()
+                    conn.disconnect()
+                    redirects++
+                    continue
+                }
+                if (code !in 200..299) {
+                    conn.disconnect()
+                    return false
+                }
+                break
+            }
+            var total = 0L
+            conn.inputStream.use { input ->
+                tmp.outputStream().use { out ->
+                    val buf = ByteArray(64 * 1024)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        total += n
+                        if (total > MAX_VIDEO_BYTES) throw java.io.IOException("too large")
+                        out.write(buf, 0, n)
+                    }
+                }
+            }
+            conn.disconnect()
+            total > 0 && tmp.renameTo(dest)
+        } catch (e: Exception) {
+            tmp.delete()
+            false
         }
     }
 }

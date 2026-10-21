@@ -39,6 +39,15 @@ class ClientStore(context: Context) {
         get() = prefs.getBoolean("last_bypass", true)
         set(v) = prefs.edit().putBoolean("last_bypass", v).apply()
 
+    /** Free-session limit of the last connection (0 = pro / unlimited). */
+    var lastLimitMinutes: Int
+        get() = prefs.getInt("last_limit", 0)
+        set(v) = prefs.edit().putInt("last_limit", v).apply()
+
+    var lastRatingAskAt: Long
+        get() = prefs.getLong("last_rating_ask", 0L)
+        set(v) = prefs.edit().putLong("last_rating_ask", v).apply()
+
     var askedNotificationPermission: Boolean
         get() = prefs.getBoolean("asked_notif", false)
         set(v) = prefs.edit().putBoolean("asked_notif", v).apply()

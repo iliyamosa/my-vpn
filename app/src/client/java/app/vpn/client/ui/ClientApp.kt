@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import app.vpn.BuildConfig
 import app.vpn.client.MainActivity
+import app.vpn.client.data.Analytics
 import app.vpn.client.data.ClientStore
 import app.vpn.client.data.ServerRepository
 import app.vpn.client.vpn.VpnState
@@ -28,6 +29,7 @@ import app.vpn.client.vpn.XrayVpnService
 import app.vpn.common.AdItem
 import app.vpn.common.ServerProfile
 import app.vpn.ui.AppColors
+import app.vpn.ui.SpaceBackground
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -91,8 +93,9 @@ fun ClientApp(activity: MainActivity) {
             }
             // The VPN service may only be started while the app is in the foreground.
             activity.resumed.first { it }
+            val limit = if (ServerRepository.isPro(activity)) 0 else ServerRepository.config.value.free.sessionMinutes
             try {
-                XrayVpnService.start(activity, p.rawLink, p.remarks, p.key, bypassIran())
+                XrayVpnService.start(activity, p.rawLink, p.remarks, p.key, bypassIran(), limit)
             } catch (e: Exception) {
                 VpnState.status.value = VpnStatus.DISCONNECTED
                 activity.toast("شروع اتصال انجام نشد.")
@@ -121,6 +124,7 @@ fun ClientApp(activity: MainActivity) {
             if (chosenAd != null) {
                 pending = job
                 ad = chosenAd
+                Analytics.track(activity, "ad_view", id = chosenAd.id)
             } else {
                 launchVpn(job)
             }
@@ -165,8 +169,9 @@ fun ClientApp(activity: MainActivity) {
         modifier = Modifier
             .fillMaxSize()
             .background(AppColors.Background)
-            .safeDrawingPadding()
     ) {
+        SpaceBackground(connected = status == VpnStatus.CONNECTED)
+        Box(Modifier.fillMaxSize().safeDrawingPadding()) {
         when (screen) {
             Screen.HOME -> HomeScreen(
                 activity = activity,
@@ -205,6 +210,7 @@ fun ClientApp(activity: MainActivity) {
                 activity = activity,
                 ad = currentAd,
                 onFinished = {
+                    Analytics.track(activity, "ad_done", id = currentAd.id)
                     ad = null
                     val job = pending
                     pending = null
@@ -212,7 +218,14 @@ fun ClientApp(activity: MainActivity) {
                 },
             )
         }
+        }
     }
+
+    SessionEndDialogs(
+        activity = activity,
+        onReconnect = { connect() },
+        onOpenPro = { screen = Screen.PRO },
+    )
 
     // ---------- dialogs ----------
     val versionCode = BuildConfig.VERSION_CODE

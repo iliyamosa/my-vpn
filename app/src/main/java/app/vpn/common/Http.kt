@@ -57,6 +57,7 @@ object Http {
                 headers.forEach { (k, v) -> conn.setRequestProperty(k, v) }
                 if (body != null) {
                     conn.doOutput = true
+                    conn.setFixedLengthStreamingMode(body.size)
                     conn.outputStream.use { it.write(body) }
                 }
                 val code = conn.responseCode

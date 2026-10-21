@@ -63,6 +63,7 @@ import app.vpn.ui.AppCard
 import app.vpn.ui.AppColors
 import app.vpn.ui.AppIcon
 import app.vpn.ui.Pill
+import app.vpn.ui.rememberDeviceTilt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -120,11 +121,32 @@ fun HomeScreen(
             }
         }
 
-        Spacer(Modifier.height(28.dp))
+        val tilt by rememberDeviceTilt()
+        val deadline by VpnState.sessionDeadline.collectAsState()
+        val ping by VpnState.pingMs.collectAsState()
+        var now by remember { mutableStateOf(System.currentTimeMillis()) }
+        LaunchedEffect(status) {
+            while (status == VpnStatus.CONNECTED) {
+                now = System.currentTimeMillis()
+                delay(1000)
+            }
+        }
 
-        ConnectButton(status = status, onClick = onConnectClick)
+        // 3D globe with the connection arc
+        Globe3D(
+            connected = status == VpnStatus.CONNECTED,
+            busy = status == VpnStatus.CONNECTING || status == VpnStatus.DISCONNECTING,
+            serverName = serverName,
+            tiltX = tilt.x,
+            tiltY = tilt.y,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(250.dp),
+        )
 
-        Spacer(Modifier.height(18.dp))
+        ConnectButton3D(status = status, tiltX = tilt.x, tiltY = tilt.y, onClick = onConnectClick)
+
+        Spacer(Modifier.height(6.dp))
 
         val statusText = when (status) {
             VpnStatus.DISCONNECTED -> "متصل نیستید"
@@ -140,20 +162,46 @@ fun HomeScreen(
         Text(statusText, style = MaterialTheme.typography.titleMedium, color = statusColor)
 
         if (status == VpnStatus.CONNECTED && connectedAt > 0) {
-            var now by remember { mutableStateOf(System.currentTimeMillis()) }
-            LaunchedEffect(connectedAt) {
-                while (true) {
-                    now = System.currentTimeMillis()
-                    delay(1000)
-                }
-            }
             val secs = ((now - connectedAt) / 1000).coerceAtLeast(0)
             val text = String.format(java.util.Locale.US, "%02d:%02d:%02d", secs / 3600, (secs % 3600) / 60, secs % 60)
             Text(text.faDigits(), style = MaterialTheme.typography.headlineSmall, color = AppColors.TextPrimary)
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("↓ ${formatBytes(down)}/s", color = AppColors.Connected, style = MaterialTheme.typography.bodyMedium)
                 Text("↑ ${formatBytes(up)}/s", color = AppColors.Primary, style = MaterialTheme.typography.bodyMedium)
+                when {
+                    ping >= 0 -> Text("پینگ $ping ms".faDigits(), color = AppColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
+                    ping == VpnState.PING_TESTING -> Text("در حال بررسی…", color = AppColors.TextMuted, style = MaterialTheme.typography.bodySmall)
+                    else -> {}
+                }
+            }
+            if (ping == VpnState.PING_FAILED) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "این سرور پاسخ نمی‌دهد. برای انتخاب سرور دیگر ضربه بزنید.",
+                    color = AppColors.Danger,
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.clickable { onOpenServers() },
+                )
+            }
+            if (deadline > 0) {
+                val left = ((deadline - now) / 1000).coerceAtLeast(0)
+                Spacer(Modifier.height(10.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(AppColors.Gold.copy(alpha = 0.14f))
+                        .clickable(enabled = config.pro.enabled) { onOpenPro() }
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                ) {
+                    Text(
+                        String.format(java.util.Locale.US, "زمان رایگان باقی‌مانده: %02d:%02d", left / 60, left % 60).faDigits() +
+                            if (config.pro.enabled) "  •  بدون محدودیت با پرو" else "",
+                        color = AppColors.Gold,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
         } else {
             Spacer(Modifier.height(4.dp))
@@ -227,7 +275,7 @@ fun HomeScreen(
                 Text("برای تمدید یا وارد کردن لینک جدید ضربه بزنید.", style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
             }
 
-            config.pro.enabled -> AppCard(color = Color(0xFF2A2210), modifier = Modifier.clickable { onOpenPro() }) {
+            config.pro.enabled -> AppCard(color = Color(0xFF2A2210), glow = AppColors.Gold, modifier = Modifier.clickable { onOpenPro() }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     AppIcon(R.drawable.ic_star, tint = AppColors.Gold, size = 28.dp)
                     Spacer(Modifier.width(12.dp))
@@ -255,64 +303,6 @@ fun HomeScreen(
 }
 
 @Composable
-private fun ConnectButton(status: VpnStatus, onClick: () -> Unit) {
-    val target = when (status) {
-        VpnStatus.CONNECTED -> AppColors.Connected
-        VpnStatus.CONNECTING, VpnStatus.DISCONNECTING -> AppColors.Connecting
-        VpnStatus.DISCONNECTED -> AppColors.Primary
-    }
-    val color by animateColorAsState(targetValue = target, label = "btnColor")
-    val transition = rememberInfiniteTransition(label = "pulse")
-    val pulse by transition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.12f,
-        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
-        label = "pulseScale",
-    )
-    val busy = status == VpnStatus.CONNECTING || status == VpnStatus.DISCONNECTING
-
-    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(220.dp)) {
-        Box(
-            modifier = Modifier
-                .size(200.dp)
-                .scale(if (busy) pulse else 1f)
-                .clip(CircleShape)
-                .background(color.copy(alpha = 0.10f)),
-        )
-        Box(
-            modifier = Modifier
-                .size(170.dp)
-                .clip(CircleShape)
-                .background(color.copy(alpha = 0.18f)),
-        )
-        Box(
-            modifier = Modifier
-                .size(138.dp)
-                .clip(CircleShape)
-                .background(color)
-                .border(3.dp, Color.White.copy(alpha = 0.15f), CircleShape)
-                .clickable(enabled = status != VpnStatus.DISCONNECTING) { onClick() },
-            contentAlignment = Alignment.Center,
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                AppIcon(R.drawable.ic_power, tint = Color.White, size = 54.dp)
-                Text(
-                    when (status) {
-                        VpnStatus.CONNECTED -> "قطع"
-                        VpnStatus.CONNECTING -> "لغو"
-                        VpnStatus.DISCONNECTING -> "…"
-                        VpnStatus.DISCONNECTED -> "اتصال"
-                    },
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
-                )
-            }
-        }
-    }
-}
-
-@Composable
 fun DelayPill(ms: Long) {
     when {
         ms == ServerRepository.DELAY_TESTING -> Pill("…", AppColors.TextSecondary)
@@ -325,7 +315,7 @@ fun DelayPill(ms: Long) {
 
 @Composable
 fun ProStatusCard(info: app.vpn.common.SubscriptionInfo?, onClick: () -> Unit) {
-    AppCard(color = Color(0xFF2A2210), modifier = Modifier.clickable { onClick() }) {
+    AppCard(color = Color(0xFF2A2210), glow = AppColors.Gold, modifier = Modifier.clickable { onClick() }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             AppIcon(R.drawable.ic_star, tint = AppColors.Gold, size = 24.dp)
             Spacer(Modifier.width(10.dp))

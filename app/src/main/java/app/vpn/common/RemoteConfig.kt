@@ -19,6 +19,8 @@ data class RemoteConfig(
     val testUrl: String = DEFAULT_TEST_URL,
     val mirrors: List<String> = emptyList(),
     val bypassIranDefault: Boolean = true,
+    /** Address of the live backend (Cloudflare Worker). Empty = use the one built into the app. */
+    val backendUrl: String = "",
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("revision", revision)
@@ -32,6 +34,7 @@ data class RemoteConfig(
         put("testUrl", testUrl)
         put("mirrors", JSONArray(mirrors))
         put("bypassIranDefault", bypassIranDefault)
+        put("backendUrl", backendUrl)
     }
 
     fun toJsonString(): String = toJson().toString(2)
@@ -53,6 +56,7 @@ data class RemoteConfig(
             testUrl = o.optString("testUrl", DEFAULT_TEST_URL).ifBlank { DEFAULT_TEST_URL },
             mirrors = o.optJSONArray("mirrors").toStringList(),
             bypassIranDefault = o.optBoolean("bypassIranDefault", true),
+            backendUrl = o.optString("backendUrl", "").trim(),
         )
     }
 }
@@ -71,9 +75,12 @@ data class FreeConfig(
     val subscriptions: List<String> = emptyList(),
     val servers: List<ManualServer> = emptyList(),
     val hideKeywords: List<String> = emptyList(),
+    /** Free users are disconnected after this many minutes (0 = no limit). */
+    val sessionMinutes: Int = 60,
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("enabled", enabled)
+        put("sessionMinutes", sessionMinutes)
         put("subscriptions", JSONArray(subscriptions))
         put("servers", JSONArray().also { arr -> servers.forEach { arr.put(it.toJson()) } })
         put("hideKeywords", JSONArray(hideKeywords))
@@ -90,6 +97,7 @@ data class FreeConfig(
                 subscriptions = o.optJSONArray("subscriptions").toStringList(),
                 servers = list.filter { it.link.isNotBlank() },
                 hideKeywords = o.optJSONArray("hideKeywords").toStringList(),
+                sessionMinutes = o.optInt("sessionMinutes", 60).coerceIn(0, 24 * 60),
             )
         }
     }
@@ -137,6 +145,7 @@ data class AdItem(
     val title: String = "",
     val text: String = "",
     val imageUrl: String = "",
+    val videoUrl: String = "",
     val link: String = "",
     val buttonText: String = "مشاهده",
     val seconds: Int = 5,
@@ -148,6 +157,7 @@ data class AdItem(
         put("title", title)
         put("text", text)
         put("imageUrl", imageUrl)
+        put("videoUrl", videoUrl)
         put("link", link)
         put("buttonText", buttonText)
         put("seconds", seconds)
@@ -163,6 +173,7 @@ data class AdItem(
                 title = o.optString("title", ""),
                 text = o.optString("text", ""),
                 imageUrl = o.optString("imageUrl", ""),
+                videoUrl = o.optString("videoUrl", ""),
                 link = o.optString("link", ""),
                 buttonText = o.optString("buttonText", "مشاهده"),
                 seconds = o.optInt("seconds", 5).coerceIn(0, 60),
@@ -184,7 +195,9 @@ data class AdsConfig(
     }
 
     fun activeItems(): List<AdItem> =
-        items.filter { it.enabled && (it.title.isNotBlank() || it.text.isNotBlank() || it.imageUrl.isNotBlank()) }
+        items.filter {
+            it.enabled && (it.title.isNotBlank() || it.text.isNotBlank() || it.imageUrl.isNotBlank() || it.videoUrl.isNotBlank())
+        }
 
     companion object {
         fun fromJson(o: JSONObject?): AdsConfig {

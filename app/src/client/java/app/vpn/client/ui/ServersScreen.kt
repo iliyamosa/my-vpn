@@ -185,7 +185,7 @@ private fun ServerRow(
             .fillMaxWidth()
             .padding(vertical = 4.dp)
             .clip(RoundedCornerShape(16.dp))
-            .background(AppColors.Surface)
+            .background(AppColors.Surface.copy(alpha = 0.8f))
             .border(1.5.dp, borderColor, RoundedCornerShape(16.dp))
             .clickable { onClick() }
             .padding(horizontal = 14.dp, vertical = 12.dp),

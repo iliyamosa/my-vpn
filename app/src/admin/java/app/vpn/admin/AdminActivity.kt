@@ -53,14 +53,47 @@ class AdminActivity : ComponentActivity() {
         }
     }
 
-    fun pickImage(onPicked: (Uri?) -> Unit) {
+    fun pickImage(onPicked: (Uri?) -> Unit) = pickMedia("image/*", onPicked)
+
+    fun pickVideo(onPicked: (Uri?) -> Unit) = pickMedia("video/*", onPicked)
+
+    private fun pickMedia(mime: String, onPicked: (Uri?) -> Unit) {
         imageCallback = onPicked
         try {
-            imagePicker.launch("image/*")
+            imagePicker.launch(mime)
         } catch (e: Exception) {
             imageCallback = null
             onPicked(null)
         }
+    }
+
+    /** Reads a picked video; returns null with a message when it is too big. */
+    fun readVideoForUpload(uri: Uri, maxBytes: Int): Pair<ByteArray?, String?> = try {
+        val size = contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null)?.use { c ->
+            if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else -1L
+        } ?: -1L
+        if (size > maxBytes) {
+            null to "حجم ویدیو ${size / 1024 / 1024} مگابایت است؛ حداکثر ${maxBytes / 1024 / 1024} مگابایت مجاز است. ویدیوی کوتاه‌تر یا فشرده‌تر انتخاب کنید."
+        } else {
+            val bytes = contentResolver.openInputStream(uri)?.use { input ->
+                val out = ByteArrayOutputStream()
+                val buf = ByteArray(64 * 1024)
+                var total = 0
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    total += n
+                    if (total > maxBytes) throw IllegalStateException("too big")
+                    out.write(buf, 0, n)
+                }
+                out.toByteArray()
+            }
+            bytes to null
+        }
+    } catch (e: IllegalStateException) {
+        null to "حجم ویدیو بیشتر از ${maxBytes / 1024 / 1024} مگابایت است."
+    } catch (e: Throwable) {
+        null to "خواندن ویدیو ممکن نشد."
     }
 
     /** Reads, shrinks (max 1080px wide) and compresses a picked image to JPEG. */

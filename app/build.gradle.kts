@@ -21,6 +21,8 @@ val configRepo: String = (findProperty("configRepo") as String?)
     ?: System.getenv("GITHUB_REPOSITORY")
     ?: appProps.getProperty("CONFIG_REPO", "")
 val keystorePath: String? = System.getenv("KEYSTORE_PATH")?.takeIf { it.isNotBlank() && file(it).exists() }
+val backendUrl: String = System.getenv("BACKEND_URL")?.trim()?.takeIf { it.startsWith("https://") }
+    ?: appProps.getProperty("BACKEND_URL", "").trim()
 
 // Ship a copy of remote/config.json inside the app, used until the live one can be downloaded.
 val bundledConfigDir: File = layout.buildDirectory.dir("generated/bundledConfig").get().asFile
@@ -41,6 +43,7 @@ android {
 
         buildConfigField("String", "CONFIG_REPO", "\"$configRepo\"")
         buildConfigField("String", "CONFIG_BRANCH", "\"$configBranch\"")
+        buildConfigField("String", "BACKEND_URL", "\"$backendUrl\"")
     }
 
     signingConfigs {
@@ -121,6 +124,8 @@ kotlin {
 dependencies {
     // Xray core (downloaded by the build workflow into app/libs). Only the public app needs it.
     "clientImplementation"(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"))))
+    // WebSocket client for instant settings updates.
+    "clientImplementation"(libs.okhttp)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
