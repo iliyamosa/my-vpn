@@ -1,10 +1,12 @@
 {
-  "revision": 17,
-  "updatedAt": 1792598279,
+  "revision": 18,
+  "updatedAt": 1792598483,
   "free": {
     "enabled": true,
     "sessionMinutes": 60,
-    "subscriptions": [],
+    "subscriptions": [
+      "https:\/\/zerofee.ok-exor.ir\/sub\/djMsMzIwNDYwLDE3OTI1OTg0NTc.d9UHG7dGaIB4gGdRvGzpIzNPCCVUOx9oZdwVaXId1Qw"
+    ],
     "servers": [
       {
         "name": "",
