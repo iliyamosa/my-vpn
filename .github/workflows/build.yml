@@ -1,10 +1,12 @@
 name: Build APK
 
 on:
+  # Every settings save from the admin app also rebuilds the app, so a freshly
+  # downloaded APK always carries the newest servers (useful where GitHub is filtered).
   push:
     branches: [main]
     paths-ignore:
-      - 'remote/**'
+      - 'remote/ads/**'
       - '**.md'
   workflow_dispatch:
 
@@ -106,6 +108,10 @@ jobs:
           # keep only the newest admin draft
           gh release list --limit 100 --json tagName,isDraft --jq '.[] | select(.isDraft) | .tagName' \
             | grep '^admin-b' | grep -v "^${ADMIN_TAG}$" | while read t; do gh release delete "$t" --yes || true; done
+          # keep only the 5 newest public app releases
+          gh release list --limit 100 --exclude-drafts --json tagName,createdAt \
+            --jq 'map(select(.tagName | startswith("v"))) | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' \
+            | while read t; do gh release delete "$t" --yes --cleanup-tag || true; done
           # close old build-failure reports
           gh issue list --state open --search "Build failed in:title" --json number --jq '.[].number' \
             | while read n; do gh issue close "$n" --comment "Fixed in build ${{ github.run_number }}." || true; done
