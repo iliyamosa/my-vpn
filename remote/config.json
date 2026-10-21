@@ -1,15 +1,11 @@
 {
-  "revision": 14,
-  "updatedAt": 1792598027,
+  "revision": 15,
+  "updatedAt": 1792598055,
   "free": {
     "enabled": true,
     "sessionMinutes": 60,
     "subscriptions": [],
     "servers": [
-      {
-        "name": "",
-        "link": "vless:\/\/3230d264-53b1-41a8-a040-e5da0ee521c0@goold.zovip2.ir:443?encryption=none&security=tls&type=ws&headerType=none&path=%2Fapi%2Fv3%2Fpulse&host=goold.zovip2.ir&sni=goold.zovip2.ir&fp=chrome&vcn=goold.zovip2.ir&alpn=http%2F1.1#%E2%97%8F%20%F0%9F%87%A9%F0%9F%87%AA%20%F0%9D%90%81%F0%9D%90%9E%F0%9D%90%AB%F0%9D%90%A5%F0%9D%90%A2%F0%9D%90%A7%20%C2%B7%20%D8%AA%D8%A7%D9%86%D9%84"
-      },
       {
         "name": "",
         "link": "vless:\/\/3230d264-53b1-41a8-a040-e5da0ee521c0@goold.zovip2.ir:443?encryption=none&security=tls&type=ws&headerType=none&path=%2Fapi%2Fv3%2Fpulse&host=goold.zovip2.ir&sni=goold.zovip2.ir&fp=chrome&vcn=goold.zovip2.ir&alpn=http%2F1.1#%E2%97%8F%20%F0%9F%87%AB%F0%9F%87%B7%20%F0%9D%90%8F%F0%9D%90%9A%F0%9D%90%AB%F0%9D%90%A2%F0%9D%90%AC%20%C2%B7%20%D8%AA%D8%A7%D9%86%D9%84"
