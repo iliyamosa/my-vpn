@@ -1,6 +1,6 @@
 {
-  "revision": 2,
-  "updatedAt": 1792562106,
+  "revision": 3,
+  "updatedAt": 1792562216,
   "free": {
     "enabled": true,
     "subscriptions": [
@@ -19,7 +19,7 @@
     "showcase": []
   },
   "ads": {
-    "enabled": false,
+    "enabled": true,
     "showForPro": false,
     "items": []
   },
