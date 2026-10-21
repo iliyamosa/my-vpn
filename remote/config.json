@@ -1,9 +1,11 @@
 {
-  "revision": 1,
-  "updatedAt": 0,
+  "revision": 2,
+  "updatedAt": 1792562106,
   "free": {
     "enabled": true,
-    "subscriptions": [],
+    "subscriptions": [
+      "https:\/\/sab.lynch.ir\/sub\/djMsMTM5MDk5LDE3OTI1NjA0ODQ.Umy5VH-HUtsmB5m7IycnWlFVJo2vOilYkaw3rCrzxIo"
+    ],
     "servers": [],
     "hideKeywords": []
   },
@@ -23,7 +25,7 @@
   },
   "notice": {
     "enabled": false,
-    "id": "",
+    "id": "n1792562106207",
     "title": "",
     "message": "",
     "buttonText": "",
@@ -39,7 +41,7 @@
     "telegram": "",
     "text": "پشتیبانی"
   },
-  "testUrl": "https://www.gstatic.com/generate_204",
+  "testUrl": "https:\/\/www.gstatic.com\/generate_204",
   "mirrors": [],
   "bypassIranDefault": true
 }
