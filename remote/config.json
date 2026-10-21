@@ -1,6 +1,6 @@
 {
-  "revision": 10,
-  "updatedAt": 1792568504,
+  "revision": 11,
+  "updatedAt": 1792574438,
   "free": {
     "enabled": true,
     "sessionMinutes": 60,
@@ -34,13 +34,13 @@
       {
         "id": "ad1792565885274_0",
         "enabled": true,
-        "title": "سلام به فایروس وی پی آن خوش امدید",
-        "text": "امیدواریم تجربه خوبی داشته باشید",
-        "imageUrl": "",
+        "title": "",
+        "text": "",
+        "imageUrl": "https:\/\/cdn.jsdelivr.net\/gh\/iliyamosa\/my-vpn@e496f9109d0162001fd76fcef788526a62725380\/remote\/ads\/ad_1792574411106.jpg",
         "videoUrl": "",
         "link": "",
         "buttonText": "مشاهده",
-        "seconds": 5,
+        "seconds": 8,
         "weight": 100
       }
     ]
