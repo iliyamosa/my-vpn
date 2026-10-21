@@ -116,12 +116,14 @@ private fun SetupScreen(activity: AdminActivity, store: AdminStore, onDone: () -
             Spacer(Modifier.height(6.dp))
             Text(
                 "تنظیمات برنامه (سرورها، تبلیغات، اطلاعیه‌ها) در مخزن GitHub شما ذخیره می‌شود. " +
-                    "یک کلید دسترسی (Token) از GitHub بسازید و اینجا وارد کنید. این کلید فقط روی همین گوشی ذخیره می‌شود؛ آن را به کسی ندهید.",
+                    "دکمه‌ی زیر را بزنید؛ صفحه‌ی ساخت کلید با تیک public_repo باز می‌شود. " +
+                    "Expiration را روی No expiration بگذارید، پایین صفحه Generate token را بزنید و کلیدی را که با ghp_ شروع می‌شود کپی کنید. " +
+                    "این کلید فقط روی همین گوشی ذخیره می‌شود؛ آن را به کسی ندهید.",
                 style = MaterialTheme.typography.bodySmall,
                 color = AppColors.TextSecondary,
             )
             Spacer(Modifier.height(8.dp))
-            TextButton(onClick = { activity.openLink("https://github.com/settings/personal-access-tokens/new") }) {
+            TextButton(onClick = { activity.openLink(GitHubClient.NEW_TOKEN_URL) }) {
                 Text("ساخت کلید در GitHub", color = AppColors.Primary)
             }
         }

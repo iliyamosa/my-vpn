@@ -10,6 +10,14 @@ import org.json.JSONObject
 /** Reads and writes files in the GitHub repo through the GitHub REST API. */
 class GitHubClient(private val token: String, val repo: String, val branch: String) {
 
+    companion object {
+        /** Classic token page with the needed scope already ticked. */
+        const val NEW_TOKEN_URL = "https://github.com/settings/tokens/new?scopes=public_repo&description=FAIROSVPN%20Admin"
+
+        const val READ_ONLY_HELP = "این کلید اجازه‌ی نوشتن در مخزن را ندارد. " +
+            "دکمه‌ی «ساخت کلید در GitHub» را بزنید و یک کلید کلاسیک (شروع با ghp_) با تیک public_repo بسازید."
+    }
+
     class LoadedConfig(val config: RemoteConfig, val sha: String?)
 
     private fun headers(): Map<String, String> = mapOf(
@@ -29,8 +37,8 @@ class GitHubClient(private val token: String, val repo: String, val branch: Stri
         }
         return when (code) {
             401 -> "کلید GitHub نامعتبر است یا منقضی شده."
-            403 -> "این کلید اجازه‌ی نوشتن در مخزن را ندارد. ($msg)"
-            404 -> "مخزن پیدا نشد یا کلید به آن دسترسی ندارد."
+            403 -> "$READ_ONLY_HELP ($msg)"
+            404 -> "مخزن پیدا نشد یا کلید به آن دسترسی ندارد. نام مخزن را بررسی کنید."
             409 -> "فایل همزمان جای دیگری تغییر کرده. دوباره بارگذاری کنید."
             422 -> "GitHub درخواست را نپذیرفت. ($msg)"
             else -> "خطای GitHub ($code) $msg"
@@ -43,7 +51,7 @@ class GitHubClient(private val token: String, val repo: String, val branch: Stri
         if (!r.ok) return errorMessage(r.code, r.text)
         val perms = JSONObject(r.text).optJSONObject("permissions")
         if (perms != null && !perms.optBoolean("push", false) && !perms.optBoolean("admin", false)) {
-            return "این کلید فقط اجازه‌ی خواندن دارد. هنگام ساخت کلید، Contents را روی Read and write بگذارید."
+            return READ_ONLY_HELP
         }
         return null
     }
