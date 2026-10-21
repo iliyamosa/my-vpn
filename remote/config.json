@@ -1,6 +1,6 @@
 {
-  "revision": 7,
-  "updatedAt": 1792565806,
+  "revision": 8,
+  "updatedAt": 1792565885,
   "free": {
     "enabled": true,
     "sessionMinutes": 60,
@@ -22,7 +22,20 @@
   "ads": {
     "enabled": true,
     "showForPro": false,
-    "items": []
+    "items": [
+      {
+        "id": "ad1792565885274_0",
+        "enabled": true,
+        "title": "سلام به فایروس وی پی آن خوش امدید",
+        "text": "امیدواریم تجربه خوبی داشته باشید",
+        "imageUrl": "",
+        "videoUrl": "",
+        "link": "",
+        "buttonText": "مشاهده",
+        "seconds": 5,
+        "weight": 100
+      }
+    ]
   },
   "notice": {
     "enabled": false,
