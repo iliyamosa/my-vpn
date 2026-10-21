@@ -7,6 +7,8 @@ on:
     branches: [main]
     paths-ignore:
       - 'remote/ads/**'
+      - 'backend/**'
+      - 'wrangler.toml'
       - '**.md'
   workflow_dispatch:
 
