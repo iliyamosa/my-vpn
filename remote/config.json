@@ -1,6 +1,6 @@
 {
-  "revision": 4,
-  "updatedAt": 1792562291,
+  "revision": 5,
+  "updatedAt": 1792563179,
   "free": {
     "enabled": true,
     "subscriptions": [
@@ -34,7 +34,7 @@
   "update": {
     "latestVersionCode": 0,
     "minVersionCode": 0,
-    "url": "",
+    "url": "https:\/\/github.com\/iliyamosa\/my-vpn\/releases\/latest\/download\/app-arm64-v8a.apk",
     "message": "نسخه‌ی جدید برنامه آماده است."
   },
   "support": {
