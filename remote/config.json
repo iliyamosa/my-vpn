@@ -1,6 +1,6 @@
 {
-  "revision": 20,
-  "updatedAt": 1792601779,
+  "revision": 21,
+  "updatedAt": 1792601806,
   "free": {
     "enabled": true,
     "sessionMinutes": 60,
@@ -32,7 +32,7 @@
         "videoUrl": "",
         "link": "",
         "buttonText": "مشاهده",
-        "seconds": 8,
+        "seconds": 33,
         "weight": 100
       }
     ]
