@@ -37,7 +37,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 
-enum class Screen { HOME, SERVERS, PRO, SETTINGS }
+enum class Screen { HOME, SERVERS, PRO, SETTINGS, DIAG }
 
 @Composable
 fun ClientApp(activity: MainActivity) {
@@ -179,6 +179,7 @@ fun ClientApp(activity: MainActivity) {
                 onOpenServers = { screen = Screen.SERVERS },
                 onOpenPro = { screen = Screen.PRO },
                 onOpenSettings = { screen = Screen.SETTINGS },
+                onOpenDiagnostics = { screen = Screen.DIAG },
             )
 
             Screen.SERVERS -> ServersScreen(
@@ -201,7 +202,10 @@ fun ClientApp(activity: MainActivity) {
                 activity = activity,
                 onBack = { screen = Screen.HOME },
                 onSettingsChanged = { reconnectIfNeeded() },
+                onOpenDiagnostics = { screen = Screen.DIAG },
             )
+
+            Screen.DIAG -> DiagnosticsScreen(activity = activity, onBack = { screen = Screen.HOME })
         }
 
         val currentAd = ad

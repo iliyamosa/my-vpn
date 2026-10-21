@@ -44,6 +44,9 @@ object ServerRepository {
     val testing = MutableStateFlow(false)
     val lastError = MutableStateFlow<String?>(null)
 
+    /** Why the free subscription could not be read (shown on the home screen and in diagnostics). */
+    val lastFreeError = MutableStateFlow<String?>(null)
+
     @Volatile
     private var loaded = false
     private var lastTestAt = 0L
@@ -67,7 +70,8 @@ object ServerRepository {
         }
         val best = listOfNotNull(cached, bundled).maxByOrNull { it.revision }
         if (best != null) config.value = best
-        freeServers.value = parseEntries(readEntries(store, ClientStore.FILE_FREE), config.value.free.hideKeywords)
+        val cachedFree = parseEntries(readEntries(store, ClientStore.FILE_FREE), config.value.free.hideKeywords)
+        freeServers.value = cachedFree.ifEmpty { parseEntries(snapshotEntries(config.value), config.value.free.hideKeywords) }
         proServers.value = parseEntries(readEntries(store, ClientStore.FILE_PRO), emptyList())
         proInfo.value = SubscriptionInfo.parse(store.proInfoHeader)
         proInfoLines.value = store.readList(ClientStore.FILE_PRO_INFO_LINES)
@@ -175,29 +179,49 @@ object ServerRepository {
     }
 
     private suspend fun refreshFree(context: Context) = coroutineScope {
-        val cfg = config.value.free
+        val full = config.value
+        val cfg = full.free
         val viaTunnel = Http.tunnelSocksPort > 0
         val entries = mutableListOf<ManualServer>()
         entries.addAll(cfg.servers)
-        var anySubFailed = false
-        val fromSubs = cfg.subscriptions.map { url ->
+        val errors = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val fromSubs = cfg.subscriptions.distinct().map { url ->
             async(Dispatchers.IO) {
                 try {
-                    SubscriptionFetcher.fetch(url, viaTunnel = viaTunnel).servers.map { ManualServer("", it.rawLink) }
+                    val r = SubscriptionFetcher.fetch(url, viaTunnel = viaTunnel)
+                    if (r.servers.isEmpty()) errors.add("${hostOf(url)}: سروری در پاسخ نبود")
+                    r.servers.map { ManualServer("", it.rawLink) }
                 } catch (e: Exception) {
-                    anySubFailed = true
+                    errors.add("${hostOf(url)}: ${describeError(e)}")
                     null
                 }
             }
         }.awaitAll()
-        fromSubs.forEach { list -> if (list != null) entries.addAll(list) }
-        if (anySubFailed && entries.size == cfg.servers.size && freeServers.value.isNotEmpty()) {
-            // Network problem: keep the old list instead of wiping it.
-            return@coroutineScope
+        var gotFromSubs = false
+        fromSubs.forEach { list ->
+            if (!list.isNullOrEmpty()) {
+                entries.addAll(list)
+                gotFromSubs = true
+            }
+        }
+        lastFreeError.value = if (errors.isEmpty()) null else errors.joinToString("\n")
+        if (cfg.subscriptions.isNotEmpty() && !gotFromSubs) {
+            // The subscription could not be read on this network: keep the last good list,
+            // or fall back to the copy saved by the admin app.
+            if (freeServers.value.isNotEmpty() && entries.size == cfg.servers.size) return@coroutineScope
+            entries.addAll(snapshotEntries(full))
         }
         val store = ClientStore(context)
         writeEntries(store, ClientStore.FILE_FREE, entries)
         freeServers.value = parseEntries(entries, cfg.hideKeywords)
+    }
+
+    private fun snapshotEntries(cfg: RemoteConfig): List<ManualServer> = cfg.free.snapshot.map { ManualServer("", it) }
+
+    private fun hostOf(url: String): String = try {
+        java.net.URI(url.trim()).host ?: url.take(30)
+    } catch (e: Exception) {
+        url.take(30)
     }
 
     private fun refreshPro(context: Context) {
@@ -423,4 +447,14 @@ object AdCache {
             false
         }
     }
+}
+
+/** Short, readable reason for a network failure. */
+fun describeError(e: Throwable): String = when (e) {
+    is java.net.UnknownHostException -> "آدرس پیدا نشد (DNS / فیلتر)"
+    is java.net.SocketTimeoutException -> "پاسخی نیامد (زمان تمام شد)"
+    is java.net.ConnectException -> "اتصال برقرار نشد"
+    is javax.net.ssl.SSLException -> "خطای امنیتی TLS (احتمال فیلتر)"
+    is app.vpn.common.HttpException -> e.message ?: "خطای HTTP"
+    else -> "${e.javaClass.simpleName}: ${e.message ?: ""}".take(120)
 }

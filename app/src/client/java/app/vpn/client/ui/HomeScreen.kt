@@ -74,6 +74,7 @@ fun HomeScreen(
     onOpenServers: () -> Unit,
     onOpenPro: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenDiagnostics: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val status by VpnState.status.collectAsState()
@@ -87,6 +88,7 @@ fun HomeScreen(
     val proInfo by ServerRepository.proInfo.collectAsState()
     val refreshing by ServerRepository.refreshing.collectAsState()
     val lastError by ServerRepository.lastError.collectAsState()
+    val freeError by ServerRepository.lastFreeError.collectAsState()
     val delays by ServerRepository.delays.collectAsState()
 
     val isPro = remember(proServers, proInfo) { ServerRepository.isPro(activity) }
@@ -255,12 +257,21 @@ fun HomeScreen(
             }
         }
 
-        if (!lastError.isNullOrBlank() && all.isEmpty() && !refreshing) {
+        if (all.isEmpty() && !refreshing) {
             Spacer(Modifier.height(8.dp))
-            TextButton(onClick = { scope.launch { ServerRepository.refreshAll(activity) } }) {
-                AppIcon(R.drawable.ic_refresh, tint = AppColors.Primary, size = 18.dp)
-                Spacer(Modifier.width(6.dp))
-                Text("تلاش دوباره", color = AppColors.Primary)
+            val reason = freeError ?: lastError
+            if (!reason.isNullOrBlank()) {
+                Text(reason, color = AppColors.Danger, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { scope.launch { ServerRepository.refreshAll(activity) } }) {
+                    AppIcon(R.drawable.ic_refresh, tint = AppColors.Primary, size = 18.dp)
+                    Spacer(Modifier.width(6.dp))
+                    Text("تلاش دوباره", color = AppColors.Primary)
+                }
+                TextButton(onClick = onOpenDiagnostics) {
+                    Text("عیب‌یابی", color = AppColors.Connecting)
+                }
             }
         }
 

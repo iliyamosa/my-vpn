@@ -42,10 +42,34 @@ data class SubscriptionResult(
 
 object SubscriptionFetcher {
 
+    /**
+     * Panels answer differently depending on the app name in the request (some send JSON or a web
+     * page to unknown apps). Try a few common client names until real server links come back.
+     */
+    private val USER_AGENTS = listOf(Http.DEFAULT_UA, "v2rayN/6.42", "curl/8.5.0", "Hiddify/2.5.7")
+
     fun fetch(url: String, viaTunnel: Boolean = false, timeoutMs: Int = 15_000): SubscriptionResult {
+        var lastError: Exception? = null
+        var lastEmpty: SubscriptionResult? = null
+        for (ua in USER_AGENTS) {
+            try {
+                val r = fetchOnce(url, ua, viaTunnel, timeoutMs)
+                if (r.servers.isNotEmpty()) return r
+                lastEmpty = r
+            } catch (e: HttpException) {
+                lastError = e
+            } catch (e: Exception) {
+                // Network level failure: other user agents will not help.
+                throw e
+            }
+        }
+        return lastEmpty ?: throw (lastError ?: HttpException("no servers"))
+    }
+
+    private fun fetchOnce(url: String, ua: String, viaTunnel: Boolean, timeoutMs: Int): SubscriptionResult {
         val r = Http.request(
             url.trim(),
-            headers = mapOf("User-Agent" to Http.DEFAULT_UA, "Accept" to "*/*"),
+            headers = mapOf("User-Agent" to ua, "Accept" to "*/*"),
             timeoutMs = timeoutMs,
             viaTunnel = viaTunnel,
         )

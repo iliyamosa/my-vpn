@@ -43,7 +43,7 @@ import app.vpn.ui.AppIcon
 import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(activity: MainActivity, onBack: () -> Unit, onSettingsChanged: () -> Unit) {
+fun SettingsScreen(activity: MainActivity, onBack: () -> Unit, onSettingsChanged: () -> Unit, onOpenDiagnostics: () -> Unit) {
     val scope = rememberCoroutineScope()
     val store = remember { ClientStore(activity) }
     val config by ServerRepository.config.collectAsState()
@@ -114,6 +114,10 @@ fun SettingsScreen(activity: MainActivity, onBack: () -> Unit, onSettingsChanged
                         Spacer(Modifier.width(8.dp))
                     }
                     Text("به‌روزرسانی سرورها")
+                }
+                Spacer(Modifier.height(6.dp))
+                OutlinedButton(onClick = onOpenDiagnostics, shape = RoundedCornerShape(12.dp)) {
+                    Text("عیب‌یابی اتصال")
                 }
             }
 

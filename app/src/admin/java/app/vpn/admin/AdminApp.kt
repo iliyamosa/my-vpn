@@ -210,6 +210,9 @@ private fun EditorScreen(activity: AdminActivity, store: AdminStore, onLogout: (
         saving = true
         scope.launch {
             var prepared = prepareForSave(cfg, loaded)
+            // 0. Keep a copy of the servers behind the subscription links, for phones that cannot reach them.
+            val snap = withContext(Dispatchers.IO) { resolveSnapshot(prepared.free) }
+            if (snap != null) prepared = prepared.copy(free = prepared.free.copy(snapshot = snap))
             // 1. Live server: every open app gets the new settings right away.
             val liveBackend = BackendClient(store.token, Backend.baseUrl(prepared))
             var delivered = -1
@@ -356,6 +359,26 @@ private fun EditorScreen(activity: AdminActivity, store: AdminStore, onLogout: (
     }
 }
 
+/** Server links behind the free subscriptions; null when none could be read (keep the old copy). */
+private fun resolveSnapshot(free: FreeConfig): List<String>? {
+    val subs = free.subscriptions.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+    if (subs.isEmpty()) return emptyList()
+    val links = mutableListOf<String>()
+    var anyOk = false
+    for (url in subs) {
+        try {
+            val r = SubscriptionFetcher.fetch(url)
+            if (r.servers.isNotEmpty()) {
+                anyOk = true
+                links.addAll(r.servers.map { it.rawLink })
+            }
+        } catch (e: Exception) {
+            // try the others
+        }
+    }
+    return if (anyOk) links.distinct() else null
+}
+
 private fun prepareForSave(cfg: RemoteConfig, loaded: RemoteConfig): RemoteConfig {
     val now = System.currentTimeMillis()
     var notice = cfg.notice
@@ -414,6 +437,11 @@ private fun ServersTab(activity: AdminActivity, cfg: RemoteConfig, onChange: (Re
         )
         Spacer(Modifier.height(8.dp))
         StringListEditor(free.subscriptions, "https://…/sub/…", ltr = true) { setFree(free.copy(subscriptions = it)) }
+        Text(
+            "نسخه‌ی پشتیبان: ${free.snapshot.size} سرور (هنگام ذخیره خودکار به‌روز می‌شود تا اگر لینک اشتراک روی اینترنت کاربری باز نشد، لیست خالی نماند).".faDigits(),
+            style = MaterialTheme.typography.bodySmall,
+            color = AppColors.TextMuted,
+        )
         Spacer(Modifier.height(8.dp))
         OutlinedButton(
             onClick = {

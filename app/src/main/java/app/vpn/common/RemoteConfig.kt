@@ -77,10 +77,16 @@ data class FreeConfig(
     val hideKeywords: List<String> = emptyList(),
     /** Free users are disconnected after this many minutes (0 = no limit). */
     val sessionMinutes: Int = 60,
+    /**
+     * Copy of the server links behind the subscriptions, saved by the admin app.
+     * Used when a phone cannot reach the subscription address.
+     */
+    val snapshot: List<String> = emptyList(),
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("enabled", enabled)
         put("sessionMinutes", sessionMinutes)
+        put("snapshot", JSONArray(snapshot))
         put("subscriptions", JSONArray(subscriptions))
         put("servers", JSONArray().also { arr -> servers.forEach { arr.put(it.toJson()) } })
         put("hideKeywords", JSONArray(hideKeywords))
@@ -98,6 +104,7 @@ data class FreeConfig(
                 servers = list.filter { it.link.isNotBlank() },
                 hideKeywords = o.optJSONArray("hideKeywords").toStringList(),
                 sessionMinutes = o.optInt("sessionMinutes", 60).coerceIn(0, 24 * 60),
+                snapshot = o.optJSONArray("snapshot").toStringList(),
             )
         }
     }
