@@ -1,11 +1,11 @@
 {
-  "revision": 11,
-  "updatedAt": 1792574438,
+  "revision": 12,
+  "updatedAt": 1792584342,
   "free": {
     "enabled": true,
     "sessionMinutes": 60,
     "subscriptions": [
-      "https:\/\/sab.lynch.ir\/sub\/djMsMTM5MDk5LDE3OTI1NjA0ODQ.Umy5VH-HUtsmB5m7IycnWlFVJo2vOilYkaw3rCrzxIo"
+      "https:\/\/sab.lynch.ir\/sub\/djMsMTUwMjA5LDE3OTI1ODQzMDU.rEIVIGuZDzwy2dh0Ktie9-0JEtGEUCfLPjaErvDB7zE"
     ],
     "servers": [],
     "hideKeywords": []
