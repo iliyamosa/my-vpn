@@ -1,6 +1,6 @@
 {
-  "revision": 3,
-  "updatedAt": 1792562216,
+  "revision": 4,
+  "updatedAt": 1792562291,
   "free": {
     "enabled": true,
     "subscriptions": [
@@ -13,9 +13,9 @@
     "enabled": true,
     "title": "اشتراک پرو",
     "description": "سرعت بیشتر، لوکیشن‌های بیشتر و بدون تبلیغ",
-    "priceText": "",
+    "priceText": "149000",
     "buyText": "خرید اشتراک",
-    "buyLink": "",
+    "buyLink": "t.me\/FairosShop_bot",
     "showcase": []
   },
   "ads": {
