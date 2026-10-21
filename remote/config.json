@@ -1,6 +1,6 @@
 {
-  "revision": 19,
-  "updatedAt": 1792599396,
+  "revision": 20,
+  "updatedAt": 1792601779,
   "free": {
     "enabled": true,
     "sessionMinutes": 60,
@@ -17,15 +17,7 @@
     "priceText": "149000",
     "buyText": "خرید اشتراک",
     "buyLink": "t.me\/FairosShop_bot",
-    "showcase": [
-      "🏴󠁧󠁢󠁥󠁮󠁧󠁿انگلیس",
-      "🇸🇦 عربستان",
-      "🇯🇵ژاپن",
-      "🇺🇲امریکا",
-      "🇹🇷ترکیه",
-      "🇩🇪 آلمان",
-      "🇲🇫فرانسه"
-    ]
+    "showcase": []
   },
   "ads": {
     "enabled": true,
