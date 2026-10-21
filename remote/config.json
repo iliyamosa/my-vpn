@@ -1,10 +1,10 @@
 {
-  "revision": 6,
-  "updatedAt": 1792563211,
+  "revision": 7,
+  "updatedAt": 1792565806,
   "free": {
     "enabled": true,
+    "sessionMinutes": 60,
     "subscriptions": [
-      "https:\/\/sab.lynch.ir\/sub\/djMsMTM5MDk5LDE3OTI1NjA0ODQ.Umy5VH-HUtsmB5m7IycnWlFVJo2vOilYkaw3rCrzxIo",
       "https:\/\/sab.lynch.ir\/sub\/djMsMTM5MDk5LDE3OTI1NjA0ODQ.Umy5VH-HUtsmB5m7IycnWlFVJo2vOilYkaw3rCrzxIo"
     ],
     "servers": [],
@@ -44,5 +44,6 @@
   },
   "testUrl": "https:\/\/www.gstatic.com\/generate_204",
   "mirrors": [],
-  "bypassIranDefault": true
+  "bypassIranDefault": true,
+  "backendUrl": ""
 }
