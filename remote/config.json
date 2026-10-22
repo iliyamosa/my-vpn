@@ -1,6 +1,6 @@
 {
-  "revision": 23,
-  "updatedAt": 1792645289,
+  "revision": 24,
+  "updatedAt": 1792645403,
   "free": {
     "enabled": true,
     "sessionMinutes": 60,
@@ -67,10 +67,10 @@
     ]
   },
   "notice": {
-    "enabled": false,
-    "id": "n1792562106207",
-    "title": "",
-    "message": "",
+    "enabled": true,
+    "id": "n1792645403889",
+    "title": "دوستان عزیز اپلیکیشن درحال توسعه است و احتمال قطعی در بعضی از ساعت ها در روز وجود دارد ",
+    "message": "از همه شما ممنونیم که درک میکنید و مارو انتخاب کردید ",
     "buttonText": "",
     "link": ""
   },
