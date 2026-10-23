@@ -1,7 +1,10 @@
-// FAIROSVPN backend: live settings, instant updates and anonymous usage stats.
+// FAIROSVPN backend: live settings, instant updates, anonymous usage stats and user accounts.
 //
 // Privacy: no IP addresses, no visited sites, no traffic data are stored.
 // A device is only a random id chosen by the app, plus phone model / Android / app version.
+// Passwords are stored only as PBKDF2 hashes. The admin never sees a password or device content.
+
+import * as A from "./accounts.js";
 
 const TEHRAN_OFFSET_MIN = 210; // Iran has no daylight saving since 2022
 const MAX_EVENTS_PER_BATCH = 300;
@@ -77,17 +80,21 @@ export default {
     const path = url.pathname.replace(/\/+$/, "") || "/";
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
     if (path === "/") return json({ ok: true, service: "fairosvpn" });
-
-    const routes = ["/ws", "/config", "/events", "/admin/config", "/admin/summary", "/admin/users", "/admin/ping"];
-    if (!routes.includes(path)) return json({ error: "not found" }, 404);
-
-    if (path.startsWith("/admin/") && !(await isAdmin(request, env))) {
-      return json({ error: "unauthorized" }, 401);
+    // The purchase website is served straight from the Worker.
+    if (path === "/buy" || path === "/pay/callback") {
+      const stub0 = env.HUB.get(env.HUB.idFromName("main"));
+      return stub0.fetch(request);
     }
+    // Everything else is handled by the Durable Object, which also does auth.
     const stub = env.HUB.get(env.HUB.idFromName("main"));
     return stub.fetch(request);
   },
 };
+
+export function bearer(request) {
+  const h = request.headers.get("Authorization") || "";
+  return h.replace(/^(Bearer|token)\s+/i, "").trim();
+}
 
 // ---------------------------------------------------------------- durable object
 
@@ -126,43 +133,121 @@ export class Hub {
     this.sql.exec(`CREATE TABLE IF NOT EXISTS counters (
       day TEXT NOT NULL, kind TEXT NOT NULL, key TEXT NOT NULL, value INTEGER NOT NULL,
       PRIMARY KEY (day, kind, key))`);
+    A.initAccountTables(this.sql);
+  }
+
+  async isAdminReq(request) {
+    const token = bearer(request);
+    if (await A.isAdminToken(this.sql, token)) return true;
+    // Fallback: a GitHub push token (kept so the old admin tool keeps working during migration).
+    return isAdmin(request, this.env);
   }
 
   async fetch(request) {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "");
+    const sql = this.sql;
+    const qp = url.searchParams;
+    const body = async () => {
+      try { return await request.json(); } catch (e) { return {}; }
+    };
+    const token = bearer(request);
+    const user = async () => A.requireUser(sql, token); // throws ApiError(401) if not logged in
+    const admin = async () => { if (!(await this.isAdminReq(request))) throw new A.ApiError(401, "دسترسی ادمین لازم است."); };
     try {
       switch (path) {
-        case "/ws":
-          return this.handleWebSocket(request);
-        case "/config":
-          return json(await this.getConfig());
+        // ---- live settings + stats (existing)
+        case "/ws": return this.handleWebSocket(request);
+        case "/config": return json(await this.getConfig());
         case "/events":
           if (request.method !== "POST") return json({ error: "method" }, 405);
-          return this.handleEvents(await request.json());
-        case "/admin/ping":
-          return json({ ok: true, online: this.onlineCount() });
+          return this.handleEvents(await body());
+        case "/notices": return json({ notices: A.listNotices(sql) });
+        case "/plans": return json({ plans: A.listPlans(sql) });
+        case "/avatar": {
+          const data = A.getAvatar(sql, qp.get("id") || "");
+          if (!data) return json({ error: "not found" }, 404);
+          const m = /^data:(image\/[a-z+.-]+);base64,(.*)$/i.exec(data);
+          if (!m) return json({ error: "bad" }, 500);
+          const bin = Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0));
+          return new Response(bin, { headers: { "Content-Type": m[1], "Cache-Control": "public, max-age=60", ...CORS } });
+        }
+
+        // ---- auth
+        case "/auth/register": return json(await A.register(sql, await body()));
+        case "/auth/login": return json(await A.login(sql, await body()));
+        case "/auth/logout": return json(await A.logout(sql, token));
+        case "/auth/admin-login": return json(await A.adminLogin(sql, this.env, await body()));
+
+        // ---- profile (logged-in user)
+        case "/me": { const { acc } = await user(); return json(A.getMe(sql, acc)); }
+        case "/me/password": { const { acc } = await user(); return json(await A.changePassword(sql, acc, await body())); }
+        case "/me/display-name": { const { acc } = await user(); return json(A.setDisplayName(sql, acc, await body())); }
+        case "/me/avatar": { const { acc } = await user(); return json(A.setAvatar(sql, acc, await body())); }
+        case "/me/device/remove": { const { acc } = await user(); return json(A.removeDevice(sql, acc, await body())); }
+        case "/me/mission/claim": { const { acc } = await user(); return json(A.claimMission(sql, acc, await body())); }
+        case "/me/redeem": { const { acc } = await user(); return json(A.redeemPlan(sql, acc, await body())); }
+
+        // ---- admin: config + stats
+        case "/admin/ping": await admin(); return json({ ok: true, online: this.onlineCount() });
         case "/admin/config":
-          if (request.method === "PUT" || request.method === "POST") return this.putConfig(await request.json());
+          await admin();
+          if (request.method === "PUT" || request.method === "POST") return this.putConfig(await body());
           return json(await this.getConfig());
-        case "/admin/summary":
-          return json(this.summary(Number(url.searchParams.get("days") || 14)));
-        case "/admin/users":
-          return json(
-            this.users(
-              url.searchParams.get("tier") || "all",
-              Number(url.searchParams.get("offset") || 0),
-              Number(url.searchParams.get("limit") || 50),
-              url.searchParams.get("q") || "",
-            ),
-          );
-        default:
-          return json({ error: "not found" }, 404);
+        case "/admin/summary": await admin(); return json(this.summary(Number(qp.get("days") || 14)));
+        case "/admin/users": await admin(); return json(this.users(qp.get("tier") || "all", Number(qp.get("offset") || 0), Number(qp.get("limit") || 50), qp.get("q") || ""));
+
+        // ---- admin: accounts
+        case "/admin/accounts": await admin(); return json(A.adminListAccounts(sql, qp.get("q") || "", qp.get("offset"), qp.get("limit")));
+        case "/admin/account": await admin(); { const b = await body(); return json(await A.adminAccountAction(sql, b.id, b)); }
+
+        // ---- admin: notices / plans / missions
+        case "/admin/notices": await admin(); return json({ notices: A.adminListNotices(sql) });
+        case "/admin/notice": await admin(); return json(A.adminSaveNotice(sql, await body()));
+        case "/admin/notice/delete": await admin(); return json(A.adminDeleteNotice(sql, (await body()).id));
+        case "/admin/plans": await admin(); return json({ plans: A.adminListPlans(sql) });
+        case "/admin/plan": await admin(); return json(A.adminSavePlan(sql, await body()));
+        case "/admin/plan/delete": await admin(); return json(A.adminDeletePlan(sql, (await body()).id));
+        case "/admin/missions": await admin(); return json({ missions: A.adminListMissions(sql) });
+        case "/admin/mission": await admin(); return json(A.adminSaveMission(sql, await body()));
+        case "/admin/mission/delete": await admin(); return json(A.adminDeleteMission(sql, (await body()).id));
+        case "/admin/settings": await admin(); return json(this.adminSettings(await body()));
+
+        // ---- purchase website
+        case "/buy": return this.buyPage();
+        case "/pay/start": return json(await this.payStart(await body()));
+        case "/pay/callback": return this.payCallback(url);
+
+        default: return json({ error: "not found" }, 404);
       }
     } catch (e) {
-      return json({ error: String((e && e.message) || e) }, 400);
+      const status = (e && e.status) || 400;
+      const out = { error: String((e && e.message) || e) };
+      if (e && e.data) Object.assign(out, e.data);
+      return json(out, status);
     }
   }
+
+  /** Admin-editable key/value settings (payment merchant id, admin password change). */
+  adminSettings(b) {
+    if (b && typeof b === "object") {
+      if (typeof b.merchantId === "string") A.kvSet(this.sql, "merchant_id", b.merchantId.trim().slice(0, 120));
+      if (typeof b.gateway === "string") A.kvSet(this.sql, "gateway", b.gateway.trim().slice(0, 40));
+      if (typeof b.sandbox === "boolean") A.kvSet(this.sql, "sandbox", b.sandbox ? "1" : "0");
+      if (typeof b.buyUrl === "string") A.kvSet(this.sql, "buy_url", b.buyUrl.trim().slice(0, 200));
+    }
+    return {
+      merchantId: A.kvGet(this.sql, "merchant_id", ""),
+      gateway: A.kvGet(this.sql, "gateway", "zarinpal"),
+      sandbox: A.kvGet(this.sql, "sandbox", "0") === "1",
+      buyUrl: A.kvGet(this.sql, "buy_url", ""),
+    };
+  }
+
+  // Payment + purchase page are built in the next stage.
+  buyPage() { return new Response("Coming soon", { headers: { "Content-Type": "text/plain; charset=utf-8", ...CORS } }); }
+  async payStart() { return { error: "not configured" }; }
+  payCallback() { return new Response("Not configured", { status: 200, headers: { "Content-Type": "text/plain" } }); }
 
   // ---------- live settings
 

@@ -6,9 +6,11 @@ compatibility_date = "2025-09-01"
 workers_dev = true
 
 [vars]
-# GitHub repository whose push access is required for admin requests.
 REPO = "iliyamosa/my-vpn"
 BRANCH = "main"
+# Admin username (not secret). The admin PASSWORD is never stored here — only its
+# PBKDF2 hash, set as a Cloudflare secret named ADMIN_PASS_HASH (Settings -> Variables and Secrets).
+ADMIN_USER = "iliyamosa"
 
 [[durable_objects.bindings]]
 name = "HUB"
