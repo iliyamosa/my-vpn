@@ -32,6 +32,89 @@ function str(v, max) {
   return String(v).slice(0, max);
 }
 
+// ---------------------------------------------------------------- purchase website
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function faNum(n) {
+  return String(n).replace(/\d/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[d]);
+}
+
+const PAGE_CSS = `<style>
+*{box-sizing:border-box}
+:root{--bg:#05060d;--card:rgba(20,22,38,.72);--line:rgba(140,150,210,.18);--ink:#eef0f8;--mute:#9aa0c0;--b1:#3a7bff;--b2:#8b6cff;--b3:#c04bff}
+body{margin:0;min-height:100vh;background:radial-gradient(1200px 700px at 80% -10%,rgba(139,108,255,.25),transparent),radial-gradient(900px 600px at 0% 110%,rgba(58,123,255,.22),transparent),var(--bg);color:var(--ink);font-family:Vazirmatn,Tahoma,system-ui,sans-serif;display:flex;align-items:center;justify-content:center;padding:22px}
+.wrap{width:100%;max-width:440px}
+.card{background:var(--card);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid var(--line);border-radius:26px;padding:26px 22px;box-shadow:0 30px 80px rgba(0,0,0,.5)}
+.logo{font-weight:800;font-size:22px;letter-spacing:.18em;text-align:center;background:linear-gradient(90deg,var(--b1),var(--b2),var(--b3));-webkit-background-clip:text;background-clip:text;color:transparent;margin:0 0 2px}
+.logo small{font-weight:400;letter-spacing:.3em;font-size:12px}
+h1{font-size:17px;font-weight:600;text-align:center;margin:14px 0 4px}
+p{color:var(--mute);font-size:13px;line-height:1.8;text-align:center;margin:4px 0}
+label{display:block;font-size:13px;color:var(--mute);margin:14px 2px 6px}
+input{width:100%;background:rgba(10,12,22,.6);border:1px solid var(--line);border-radius:14px;color:var(--ink);font:inherit;font-size:15px;padding:13px 14px;outline:none}
+input:focus{border-color:var(--b2)}
+.plans{display:flex;flex-direction:column;gap:10px;margin:8px 0 4px}
+.plan{display:flex;align-items:center;gap:12px;border:1.5px solid var(--line);border-radius:16px;padding:14px;cursor:pointer;transition:border-color .2s,background .2s}
+.plan.sel{border-color:var(--b2);background:rgba(139,108,255,.12)}
+.plan .r{width:18px;height:18px;border-radius:50%;border:2px solid var(--mute);flex:none}
+.plan.sel .r{border-color:var(--b2);background:var(--b2);box-shadow:inset 0 0 0 3px var(--card)}
+.plan .nm{flex:1}
+.plan .nm b{display:block;font-size:15px;font-weight:600}
+.plan .nm small{color:var(--mute);font-size:12px}
+.plan .pr{font-weight:700;font-size:15px}
+.btn{width:100%;margin-top:18px;border:0;border-radius:16px;padding:15px;font:inherit;font-size:16px;font-weight:700;color:#fff;cursor:pointer;background:linear-gradient(90deg,var(--b1),var(--b2),var(--b3))}
+.btn:disabled{opacity:.6}
+.err{color:#ff8fa3;font-size:13px;text-align:center;margin-top:12px;min-height:16px}
+.badge{width:62px;height:62px;border-radius:50%;border:2px solid;display:flex;align-items:center;justify-content:center;font-size:30px;margin:0 auto 10px}
+.ref{font-size:13px;color:var(--ink)}
+.hint{margin-top:16px;font-size:12px}
+.foot{text-align:center;margin-top:16px;font-size:11px;color:var(--mute)}
+</style><link href="https://cdn.jsdelivr.net/npm/vazirmatn@33.0.3/Vazirmatn-font-face.css" rel="stylesheet">`;
+
+function buildBuyPage(origin, plans) {
+  const planCards = plans.map((p, i) => `
+    <div class="plan${i === 0 ? " sel" : ""}" data-id="${esc(p.id)}" onclick="pick(this)">
+      <span class="r"></span>
+      <span class="nm"><b>${esc(p.title)}</b><small>${faNum(p.days)} روز</small></span>
+      <span class="pr">${esc(p.price || (faNum(p.amountToman.toLocaleString("en-US")) + " تومان"))}</span>
+    </div>`).join("");
+  const body = plans.length
+    ? `<div class="plans">${planCards}</div>
+       <label>نام کاربری یا ایمیل</label><input id="login" autocomplete="username" dir="ltr">
+       <label>رمز عبور</label><input id="pass" type="password" autocomplete="current-password" dir="ltr">
+       <button class="btn" id="go" onclick="pay()">پرداخت و فعال‌سازی</button>
+       <div class="err" id="err"></div>`
+    : `<p style="margin-top:20px">در حال حاضر پلنی برای خرید آنلاین تنظیم نشده است. لطفاً بعداً دوباره سر بزنید یا با پشتیبانی تماس بگیرید.</p>`;
+  return `<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>خرید اشتراک — FAIROS VPN</title>${PAGE_CSS}</head><body><div class="wrap"><div class="card">
+<p class="logo">FAIROS<small> VPN</small></p>
+<h1>خرید اشتراک پرو</h1>
+<p>با نام کاربری و رمز حساب خودتان وارد شوید؛ بعد از پرداخت، اشتراک در لحظه در برنامه فعال می‌شود.</p>
+${body}
+<div class="foot">پرداخت امن از طریق درگاه بانکی</div>
+</div></div>
+<script>
+let sel=document.querySelector(".plan.sel")?.dataset.id||"";
+function pick(el){document.querySelectorAll(".plan").forEach(p=>p.classList.remove("sel"));el.classList.add("sel");sel=el.dataset.id;}
+async function pay(){
+  const err=document.getElementById("err");err.textContent="";
+  const login=document.getElementById("login").value.trim();
+  const pass=document.getElementById("pass").value;
+  if(!login||!pass){err.textContent="نام کاربری و رمز را وارد کنید.";return;}
+  if(!sel){err.textContent="یک پلن انتخاب کنید.";return;}
+  const btn=document.getElementById("go");btn.disabled=true;btn.textContent="در حال انتقال به درگاه…";
+  try{
+    const r=await fetch("/pay/start",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({login,password:pass,planId:sel})});
+    const d=await r.json();
+    if(d.ok&&d.redirect){location.href=d.redirect;return;}
+    err.textContent=d.error||"خطا در ایجاد پرداخت.";
+  }catch(e){err.textContent="ارتباط با سرور برقرار نشد.";}
+  btn.disabled=false;btn.textContent="پرداخت و فعال‌سازی";
+}
+</script></body></html>`;
+}
+
 // ---------------------------------------------------------------- admin auth
 
 const authCache = new Map(); // sha256(token) -> expiry ms
@@ -213,9 +296,15 @@ export class Hub {
         case "/admin/mission/delete": await admin(); return json(A.adminDeleteMission(sql, (await body()).id));
         case "/admin/settings": await admin(); return json(this.adminSettings(await body()));
 
+        // ---- pro servers (names are public; links are secret and go only to paying users)
+        case "/pro/showcase": return json({ names: A.proShowcase(sql) });
+        case "/admin/pro-servers": await admin(); return json({ servers: A.adminListProServers(sql) });
+        case "/admin/pro-server": await admin(); return json(A.adminSaveProServer(sql, await body()));
+        case "/admin/pro-server/delete": await admin(); return json(A.adminDeleteProServer(sql, (await body()).id));
+
         // ---- purchase website
-        case "/buy": return this.buyPage();
-        case "/pay/start": return json(await this.payStart(await body()));
+        case "/buy": return this.buyPage(url.origin);
+        case "/pay/start": return json(await this.payStart(await body(), url.origin));
         case "/pay/callback": return this.payCallback(url);
 
         default: return json({ error: "not found" }, 404);
@@ -244,10 +333,89 @@ export class Hub {
     };
   }
 
-  // Payment + purchase page are built in the next stage.
-  buyPage() { return new Response("Coming soon", { headers: { "Content-Type": "text/plain; charset=utf-8", ...CORS } }); }
-  async payStart() { return { error: "not configured" }; }
-  payCallback() { return new Response("Not configured", { status: 200, headers: { "Content-Type": "text/plain" } }); }
+  // ---------- purchase website + Zarinpal payment
+
+  zpBase() { return A.kvGet(this.sql, "sandbox", "0") === "1" ? "https://sandbox.zarinpal.com" : "https://payment.zarinpal.com"; }
+
+  /** Verifies the buyer, creates a Zarinpal payment and returns the gateway redirect URL. */
+  async payStart(body, origin) {
+    const acc = await A.findForPurchase(this.sql, body); // throws 401 on bad credentials
+    const plan = A.getPlan(this.sql, body.planId);
+    if (!plan || !plan.enabled) throw new A.ApiError(404, "پلن انتخابی پیدا نشد.");
+    const amountToman = Math.trunc(Number(plan.amount_toman || 0));
+    if (amountToman <= 0) throw new A.ApiError(400, "این پلن برای خرید آنلاین تنظیم نشده است. با پشتیبانی تماس بگیرید.");
+    const merchantId = A.kvGet(this.sql, "merchant_id", "");
+    if (!merchantId) throw new A.ApiError(503, "درگاه پرداخت هنوز توسط مدیر تنظیم نشده است.");
+    const amountRial = amountToman * 10;
+    const callback = `${origin}/pay/callback`;
+    const r = await fetch(`${this.zpBase()}/pg/v4/payment/request.json`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        merchant_id: merchantId, amount: amountRial, callback_url: callback,
+        description: `${plan.title} — FAIROS VPN`, metadata: { email: acc.email },
+      }),
+    });
+    const data = await r.json().catch(() => ({}));
+    const code = data?.data?.code;
+    if (code !== 100 || !data?.data?.authority) {
+      const msg = Array.isArray(data?.errors) && data.errors[0]?.message ? data.errors[0].message : "ایجاد تراکنش ناموفق بود.";
+      throw new A.ApiError(502, `خطای درگاه پرداخت: ${msg}`);
+    }
+    const authority = data.data.authority;
+    A.createPayment(this.sql, { authority, accountId: acc.id, planId: plan.id, amount: amountRial });
+    return { ok: true, redirect: `${this.zpBase()}/pg/StartPay/${authority}` };
+  }
+
+  /** Gateway return URL: verifies the payment and instantly activates pro for the buyer. */
+  async payCallback(url) {
+    const authority = url.searchParams.get("Authority") || "";
+    const status = url.searchParams.get("Status") || "";
+    const pay = A.getPayment(this.sql, authority);
+    if (!pay) return this.resultPage(false, "تراکنش پیدا نشد.");
+    if (pay.status === "paid") return this.resultPage(true, "این پرداخت قبلاً ثبت شده و اشتراک شما فعال است.", pay.ref_id);
+    if (status !== "OK") { A.markFailed(this.sql, authority); return this.resultPage(false, "پرداخت توسط شما لغو شد یا ناموفق بود."); }
+    const merchantId = A.kvGet(this.sql, "merchant_id", "");
+    try {
+      const r = await fetch(`${this.zpBase()}/pg/v4/payment/verify.json`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ merchant_id: merchantId, amount: Number(pay.amount), authority }),
+      });
+      const data = await r.json().catch(() => ({}));
+      const code = data?.data?.code;
+      if (code === 100 || code === 101) {
+        const refId = String(data?.data?.ref_id || "");
+        A.markPaid(this.sql, authority, refId);
+        const plan = A.getPlan(this.sql, pay.plan_id);
+        if (plan) A.grantPlan(this.sql, pay.account_id, { days: plan.days });
+        return this.resultPage(true, "پرداخت با موفقیت انجام شد و اشتراک پرو شما همین حالا فعال شد.", refId);
+      }
+      A.markFailed(this.sql, authority);
+      return this.resultPage(false, "تأیید پرداخت ناموفق بود. اگر مبلغی کسر شده تا ۷۲ ساعت برمی‌گردد.");
+    } catch (e) {
+      return this.resultPage(false, "ارتباط با درگاه برقرار نشد. اگر مبلغی کسر شده با پشتیبانی تماس بگیرید.");
+    }
+  }
+
+  resultPage(ok, message, refId) {
+    const color = ok ? "#2ff5c8" : "#ff6b8a";
+    const icon = ok ? "✓" : "✕";
+    const ref = refId ? `<p class="ref">کد پیگیری: ${esc(String(refId))}</p>` : "";
+    const html = `<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FAIROS VPN — نتیجه پرداخت</title>${PAGE_CSS}</head><body><div class="wrap"><div class="card">
+<div class="badge" style="color:${color};border-color:${color}">${icon}</div>
+<h1>${ok ? "پرداخت موفق" : "پرداخت ناموفق"}</h1><p>${esc(message)}</p>${ref}
+<p class="hint">حالا به برنامه‌ی FAIROS VPN برگردید. اشتراک شما تا چند ثانیه‌ی دیگر در برنامه نمایش داده می‌شود.</p>
+</div></div></body></html>`;
+    return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", ...CORS } });
+  }
+
+  buyPage(origin) {
+    const plans = A.listPlans(this.sql).filter((p) => Number(p.amountToman || 0) > 0);
+    const html = buildBuyPage(origin, plans);
+    return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", ...CORS } });
+  }
 
   // ---------- live settings
 

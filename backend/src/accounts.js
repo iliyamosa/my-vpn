@@ -105,6 +105,25 @@ export function initAccountTables(sql) {
   sql.exec(`CREATE TABLE IF NOT EXISTS mission_done (
     account_id TEXT, mission_id TEXT, done_at INTEGER, PRIMARY KEY (account_id, mission_id))`);
   sql.exec(`CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT)`);
+  // Pro servers: the real connection links are secret and go only to paying users.
+  sql.exec(`CREATE TABLE IF NOT EXISTS pro_servers (
+    id TEXT PRIMARY KEY, name TEXT, link TEXT, enabled INTEGER DEFAULT 1, sort INTEGER DEFAULT 0, created INTEGER)`);
+  // Payments (one row per purchase attempt through the gateway).
+  sql.exec(`CREATE TABLE IF NOT EXISTS payments (
+    authority TEXT PRIMARY KEY, account_id TEXT, plan_id TEXT, amount INTEGER,
+    status TEXT DEFAULT 'pending', ref_id TEXT, created INTEGER, paid_at INTEGER)`);
+  // Older plans tables may lack the numeric amount column; add it once.
+  addColumn(sql, "plans", "amount_toman", "INTEGER DEFAULT 0");
+}
+
+/** Adds a column if it isn't already there (SQLite has no IF NOT EXISTS for columns). */
+function addColumn(sql, table, col, def) {
+  try {
+    const cols = sql.exec(`PRAGMA table_info(${table})`).toArray().map((r) => r.name);
+    if (!cols.includes(col)) sql.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+  } catch (e) {
+    // ignore
+  }
 }
 
 function one(sql, q, ...args) {
@@ -273,11 +292,15 @@ export async function adminLogin(sql, env, body) {
 export function getMe(sql, acc) {
   const devices = all(sql, "SELECT device_id, label, last_seen FROM account_devices WHERE account_id = ? ORDER BY last_seen DESC", acc.id)
     .map((d) => ({ id: d.device_id, label: d.label || "دستگاه", lastSeen: Number(d.last_seen || 0) }));
+  const pro = isPro(acc);
   return {
     account: publicAccount(sql, acc),
     devices,
     referrals: Number(one(sql, "SELECT COUNT(*) AS n FROM accounts WHERE invited_by = ?", acc.id).n || 0),
     missions: missionsFor(sql, acc),
+    // Pro locations: everyone sees the names (locked, starred); only a paying account gets the real links.
+    proShowcase: proShowcase(sql),
+    proServers: pro ? proServerLinks(sql) : [],
   };
 }
 
@@ -344,27 +367,77 @@ export function adminDeleteNotice(sql, id) {
 
 // ---------------------------------------------------------------- plans
 
+export function getPlan(sql, id) {
+  return one(sql, "SELECT * FROM plans WHERE id = ?", String(id));
+}
 export function listPlans(sql) {
-  return all(sql, "SELECT id, title, days, price, point_cost FROM plans WHERE enabled = 1 ORDER BY sort DESC, days ASC")
-    .map((p) => ({ id: p.id, title: p.title, days: Number(p.days || 0), price: p.price || "", pointCost: Number(p.point_cost || 0) }));
+  return all(sql, "SELECT id, title, days, price, point_cost, amount_toman FROM plans WHERE enabled = 1 ORDER BY sort DESC, days ASC")
+    .map((p) => ({ id: p.id, title: p.title, days: Number(p.days || 0), price: p.price || "", pointCost: Number(p.point_cost || 0), amountToman: Number(p.amount_toman || 0) }));
 }
 export function adminListPlans(sql) {
   return all(sql, "SELECT * FROM plans ORDER BY sort DESC, days ASC")
-    .map((p) => ({ id: p.id, title: p.title, days: Number(p.days || 0), price: p.price || "", pointCost: Number(p.point_cost || 0), enabled: !!p.enabled, sort: Number(p.sort || 0) }));
+    .map((p) => ({ id: p.id, title: p.title, days: Number(p.days || 0), price: p.price || "", pointCost: Number(p.point_cost || 0), amountToman: Number(p.amount_toman || 0), enabled: !!p.enabled, sort: Number(p.sort || 0) }));
 }
 export function adminSavePlan(sql, body) {
   const id = String(body.id || "").trim() || newId();
   sql.exec(
-    `INSERT INTO plans (id, title, days, price, point_cost, enabled, sort) VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET title=excluded.title, days=excluded.days, price=excluded.price, point_cost=excluded.point_cost, enabled=excluded.enabled, sort=excluded.sort`,
+    `INSERT INTO plans (id, title, days, price, point_cost, amount_toman, enabled, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET title=excluded.title, days=excluded.days, price=excluded.price, point_cost=excluded.point_cost, amount_toman=excluded.amount_toman, enabled=excluded.enabled, sort=excluded.sort`,
     id, String(body.title || "").slice(0, 80), Math.max(0, Number(body.days || 0)), String(body.price || "").slice(0, 40),
-    Math.max(0, Number(body.pointCost || 0)), body.enabled === false ? 0 : 1, Number(body.sort || 0),
+    Math.max(0, Number(body.pointCost || 0)), Math.max(0, Math.trunc(Number(body.amountToman || 0))), body.enabled === false ? 0 : 1, Number(body.sort || 0),
   );
   return { ok: true, id };
 }
 export function adminDeletePlan(sql, id) {
   sql.exec("DELETE FROM plans WHERE id = ?", String(id));
   return { ok: true };
+}
+
+// ---------------------------------------------------------------- pro servers (secret links)
+
+/** Public: names only, so free users can see the locked pro locations with a star. */
+export function proShowcase(sql) {
+  return all(sql, "SELECT name FROM pro_servers WHERE enabled = 1 ORDER BY sort DESC, name ASC")
+    .map((r) => r.name).filter(Boolean);
+}
+/** Private: the real links, returned only to a paying (pro) account. */
+export function proServerLinks(sql) {
+  return all(sql, "SELECT name, link FROM pro_servers WHERE enabled = 1 AND link <> '' ORDER BY sort DESC, name ASC")
+    .map((r) => ({ name: r.name, link: r.link }));
+}
+export function adminListProServers(sql) {
+  return all(sql, "SELECT * FROM pro_servers ORDER BY sort DESC, name ASC")
+    .map((r) => ({ id: r.id, name: r.name, link: r.link || "", enabled: !!r.enabled, sort: Number(r.sort || 0) }));
+}
+export function adminSaveProServer(sql, body) {
+  const id = String(body.id || "").trim() || newId();
+  const created = Number(one(sql, "SELECT created FROM pro_servers WHERE id = ?", id)?.created || Date.now());
+  sql.exec(
+    `INSERT INTO pro_servers (id, name, link, enabled, sort, created) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET name=excluded.name, link=excluded.link, enabled=excluded.enabled, sort=excluded.sort`,
+    id, String(body.name || "").slice(0, 80), String(body.link || "").trim().slice(0, 4000), body.enabled === false ? 0 : 1, Number(body.sort || 0), created,
+  );
+  return { ok: true, id };
+}
+export function adminDeleteProServer(sql, id) {
+  sql.exec("DELETE FROM pro_servers WHERE id = ?", String(id));
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------- payments
+
+export function createPayment(sql, p) {
+  sql.exec("INSERT INTO payments (authority, account_id, plan_id, amount, status, created) VALUES (?, ?, ?, ?, 'pending', ?)",
+    p.authority, p.accountId, p.planId, Math.trunc(p.amount), Date.now());
+}
+export function getPayment(sql, authority) {
+  return one(sql, "SELECT * FROM payments WHERE authority = ?", String(authority));
+}
+export function markPaid(sql, authority, refId) {
+  sql.exec("UPDATE payments SET status = 'paid', ref_id = ?, paid_at = ? WHERE authority = ?", String(refId), Date.now(), authority);
+}
+export function markFailed(sql, authority) {
+  sql.exec("UPDATE payments SET status = 'failed' WHERE authority = ? AND status = 'pending'", authority);
 }
 
 /** Extends an account's pro period by a plan's days. Used by payment verification and by redeem. */

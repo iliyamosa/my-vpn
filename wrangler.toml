@@ -8,9 +8,12 @@ workers_dev = true
 [vars]
 REPO = "iliyamosa/my-vpn"
 BRANCH = "main"
-# Admin username (not secret). The admin PASSWORD is never stored here — only its
-# PBKDF2 hash, set as a Cloudflare secret named ADMIN_PASS_HASH (Settings -> Variables and Secrets).
+# Admin username (not secret).
 ADMIN_USER = "iliyamosa"
+# The admin PASSWORD is never stored — only its irreversible PBKDF2 hash (120k iterations).
+# Recovering the password from this hash is infeasible. To rotate it, generate a new hash
+# and replace the line below, or move it to a Cloudflare secret of the same name and delete it here.
+ADMIN_PASS_HASH = "pbkdf2$120000$ySHRBedXeWTu3ntKSXyjJQ==$dUxufzcpLErjUNSEvitjhOeXOTFkW00WAUrRtl9cbzw="
 
 [[durable_objects.bindings]]
 name = "HUB"
