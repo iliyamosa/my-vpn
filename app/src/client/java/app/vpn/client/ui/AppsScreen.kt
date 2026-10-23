@@ -8,6 +8,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -199,9 +200,7 @@ private fun ModeTab(label: String, selected: Boolean, modifier: Modifier, onClic
     }
 }
 
-private fun Modifier.borderMuted(): Modifier = this.then(
-    androidx.compose.foundation.border(1.5.dp, AppColors.Border, RoundedCornerShape(7.dp))
-)
+private fun Modifier.borderMuted(): Modifier = this.border(1.5.dp, AppColors.Border, RoundedCornerShape(7.dp))
 
 private fun loadApps(activity: MainActivity): List<AppEntry> {
     val pm = activity.packageManager

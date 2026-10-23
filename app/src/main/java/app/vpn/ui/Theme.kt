@@ -2,6 +2,7 @@ package app.vpn.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -226,9 +227,7 @@ fun GradientButton(
     }
 }
 
-private fun Modifier.androidxClick(onClick: () -> Unit): Modifier = this.then(
-    androidx.compose.foundation.clickable(onClick = onClick),
-)
+private fun Modifier.androidxClick(onClick: () -> Unit): Modifier = this.clickable(onClick = onClick)
 
 @Composable
 fun Pill(text: String, color: Color, modifier: Modifier = Modifier) {
