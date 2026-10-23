@@ -68,18 +68,13 @@ android {
         }
     }
 
+    // A single "client" flavor: admin is now built into the main app (sign in as admin from the login screen).
     flavorDimensions.add("role")
     productFlavors {
         create("client") {
             dimension = "role"
             resValue("string", "app_name", xmlSafe(appName))
             buildConfigField("boolean", "IS_ADMIN", "false")
-        }
-        create("admin") {
-            dimension = "role"
-            applicationIdSuffix = ".admin"
-            resValue("string", "app_name", xmlSafe(adminName))
-            buildConfigField("boolean", "IS_ADMIN", "true")
         }
     }
 

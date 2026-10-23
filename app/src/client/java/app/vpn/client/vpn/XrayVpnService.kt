@@ -159,11 +159,10 @@ class XrayVpnService : VpnService() {
             } catch (e: Exception) {
                 // device without IPv6 support
             }
-            try {
-                builder.addDisallowedApplication(packageName)
-            } catch (e: Exception) {
-                // should not happen
-            }
+            // Split tunneling: in "selected" mode only the chosen apps use the VPN (allow-list);
+            // our own app is naturally excluded because it is never in that list. Otherwise all
+            // apps are routed through the VPN except this app.
+            applySplitTunnel(builder)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) builder.setMetered(false)
             val pfd = builder.establish() ?: throw IllegalStateException("اجازه‌ی VPN داده نشده است.")
             tun = pfd
@@ -209,6 +208,30 @@ class XrayVpnService : VpnService() {
             VpnState.pingMs.value = if (d >= 0) d else VpnState.PING_FAILED
             Analytics.track(this@XrayVpnService, if (d >= 0) "conn_ok" else "conn_fail", server = name)
             Analytics.flush(this@XrayVpnService)
+        }
+    }
+
+    /** Applies the user's split-tunnel choice to the VPN builder. */
+    private fun applySplitTunnel(builder: Builder) {
+        val store = ClientStore(this)
+        val selected = store.vpnApps
+        val useAllowList = store.vpnAppMode == "selected" && selected.isNotEmpty()
+        if (useAllowList) {
+            var added = 0
+            for (pkg in selected) {
+                try {
+                    builder.addAllowedApplication(pkg)
+                    added++
+                } catch (e: Exception) {
+                    // the app was uninstalled; skip it
+                }
+            }
+            // If nothing valid remained, fall back to routing all apps (minus this one).
+            if (added == 0) {
+                try { builder.addDisallowedApplication(packageName) } catch (e: Exception) { }
+            }
+        } else {
+            try { builder.addDisallowedApplication(packageName) } catch (e: Exception) { }
         }
     }
 

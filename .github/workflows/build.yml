@@ -1,10 +1,11 @@
 name: Build APK
 
 on:
-  # Every settings save from the admin app also rebuilds the app, so a freshly
-  # downloaded APK always carries the newest servers (useful where GitHub is filtered).
+  # Pushes to main publish the public APK to the "latest" release (the live download link).
+  # Pushes to v2 only build and upload a workflow artifact, so new work can be tested
+  # without disturbing users who are downloading from "latest".
   push:
-    branches: [main]
+    branches: [main, v2]
     paths-ignore:
       - 'remote/ads/**'
       - 'backend/**'
@@ -74,7 +75,7 @@ jobs:
           set -o pipefail
           echo "sdk.dir=${ANDROID_HOME}" > local.properties
           chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace assembleClientRelease assembleAdminRelease 2>&1 | tee build.log
+          ./gradlew --no-daemon --stacktrace assembleClientRelease 2>&1 | tee build.log
 
       - name: Collect APKs
         id: collect
@@ -87,16 +88,20 @@ jobs:
               *universal*) cp "$f" out/app-universal.apk ;;
             esac
           done
-          for f in app/build/outputs/apk/admin/release/*.apk; do
-            case "$f" in
-              *universal*) cp "$f" out/admin.apk ;;
-            esac
-          done
           ls -la out
           VERSION_NAME=$(grep -E '^VERSION_NAME=' app.properties | cut -d= -f2 | tr -d '[:space:]')
           echo "version=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
 
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fairosvpn-${{ steps.collect.outputs.version }}-b${{ github.run_number }}
+          path: out/*.apk
+          if-no-files-found: error
+
       - name: Publish release
+        # Only main updates the live "latest" download link. v2 builds stay as artifacts above.
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -105,11 +110,6 @@ jobs:
             --title "$TAG" \
             --notes "app-arm64-v8a.apk: most phones. app-armeabi-v7a.apk: older phones. app-universal.apk: works on all phones (bigger)." \
             --latest
-          ADMIN_TAG="admin-b${{ github.run_number }}"
-          gh release create "$ADMIN_TAG" out/admin.apk --title "Admin $ADMIN_TAG" --notes "Admin app (private draft)." --draft
-          # keep only the newest admin draft
-          gh release list --limit 100 --json tagName,isDraft --jq '.[] | select(.isDraft) | .tagName' \
-            | grep '^admin-b' | grep -v "^${ADMIN_TAG}$" | while read t; do gh release delete "$t" --yes || true; done
           # keep only the 5 newest public app releases
           gh release list --limit 100 --exclude-drafts --json tagName,createdAt \
             --jq 'map(select(.tagName | startswith("v"))) | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' \

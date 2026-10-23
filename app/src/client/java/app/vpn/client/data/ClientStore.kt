@@ -4,11 +4,57 @@ import android.content.Context
 import android.content.SharedPreferences
 import org.json.JSONArray
 import java.io.File
+import java.util.UUID
 
 /** Small key/value + file storage for the public app. */
 class ClientStore(context: Context) {
     private val appContext = context.applicationContext
     private val prefs: SharedPreferences = appContext.getSharedPreferences("client", Context.MODE_PRIVATE)
+
+    /** Stable anonymous device id (shared with Analytics); created once. */
+    val deviceId: String
+        get() {
+            var id = prefs.getString("device_id", null)
+            if (id.isNullOrBlank()) {
+                id = UUID.randomUUID().toString()
+                prefs.edit().putString("device_id", id).apply()
+            }
+            return id
+        }
+
+    /** Logged-in account session token (empty = not logged in). */
+    var authToken: String
+        get() = prefs.getString("auth_token", "").orEmpty()
+        set(v) = prefs.edit().putString("auth_token", v).apply()
+
+    /** Admin session token (set after a successful admin login). */
+    var adminToken: String
+        get() = prefs.getString("admin_token", "").orEmpty()
+        set(v) = prefs.edit().putString("admin_token", v).apply()
+
+    /** Cached account JSON for instant display before /me returns. */
+    var accountJson: String
+        get() = prefs.getString("account_json", "").orEmpty()
+        set(v) = prefs.edit().putString("account_json", v).apply()
+
+    /** The user's own avatar as a data URL, kept locally so it shows instantly. */
+    var avatarData: String
+        get() = prefs.getString("avatar_data", "").orEmpty()
+        set(v) = prefs.edit().putString("avatar_data", v).apply()
+
+    /** Apps allowed through the VPN (empty = all apps). Package names. */
+    var vpnApps: Set<String>
+        get() = prefs.getStringSet("vpn_apps", emptySet()).orEmpty()
+        set(v) = prefs.edit().putStringSet("vpn_apps", v).apply()
+
+    /** "all" (default) or "selected" (only vpnApps go through the tunnel). */
+    var vpnAppMode: String
+        get() = prefs.getString("vpn_app_mode", "all").orEmpty().ifBlank { "all" }
+        set(v) = prefs.edit().putString("vpn_app_mode", v).apply()
+
+    fun clearSession() {
+        prefs.edit().remove("auth_token").remove("account_json").remove("avatar_data").apply()
+    }
 
     var selectedKey: String
         get() = prefs.getString("selected_key", AUTO).orEmpty().ifBlank { AUTO }
@@ -26,6 +72,11 @@ class ClientStore(context: Context) {
     var dismissedNoticeId: String
         get() = prefs.getString("dismissed_notice", "").orEmpty()
         set(v) = prefs.edit().putString("dismissed_notice", v).apply()
+
+    /** Creation time of the newest notice the user has already seen (for the bell badge). */
+    var lastSeenNoticeAt: Long
+        get() = prefs.getLong("last_seen_notice", 0L)
+        set(v) = prefs.edit().putLong("last_seen_notice", v).apply()
 
     var lastLink: String
         get() = prefs.getString("last_link", "").orEmpty()

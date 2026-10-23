@@ -20,8 +20,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import app.vpn.BuildConfig
 import app.vpn.client.MainActivity
+import app.vpn.client.data.AccountManager
 import app.vpn.client.data.Analytics
 import app.vpn.client.data.ClientStore
+import app.vpn.client.data.NoticesStore
 import app.vpn.client.data.ServerRepository
 import app.vpn.client.vpn.VpnState
 import app.vpn.client.vpn.VpnStatus
@@ -37,28 +39,50 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 
-enum class Screen { HOME, SERVERS, PRO, SETTINGS, DIAG }
+enum class Screen { HOME, SERVERS, PRO, PROFILE, INFO, APPS, POINTS, NOTICES, SETTINGS, DIAG, ADMIN }
 
 @Composable
 fun ClientApp(activity: MainActivity) {
+    val loggedIn by AccountManager.loggedIn.collectAsState()
+    val isAdmin by AccountManager.isAdmin.collectAsState()
+
+    when {
+        // A plain user (or an admin who is also signed in as a user) gets the full app.
+        loggedIn -> MainApp(activity)
+        // An admin who signed in only as admin goes straight to the management panel.
+        isAdmin -> Box(Modifier.fillMaxSize().background(AppColors.Background)) {
+            SpaceBackground(connected = false)
+            Box(Modifier.fillMaxSize().safeDrawingPadding()) {
+                AdminPanel(activity, onExit = { AccountManager.adminLogout(activity) })
+            }
+        }
+        // Not signed in: the mandatory login / register gate.
+        else -> AuthScreen(activity)
+    }
+}
+
+@Composable
+private fun MainApp(activity: MainActivity) {
     val scope = rememberCoroutineScope()
     val store = remember { ClientStore(activity) }
     var screen by remember { mutableStateOf(Screen.HOME) }
     var ad by remember { mutableStateOf<AdItem?>(null) }
     var pending by remember { mutableStateOf<Deferred<ServerProfile?>?>(null) }
     var updateDismissed by remember { mutableStateOf(false) }
-    var noticeDismissedNow by remember { mutableStateOf(false) }
 
     val status by VpnState.status.collectAsState()
     val config by ServerRepository.config.collectAsState()
     val resumed by activity.resumed.collectAsState()
     val vpnError by VpnState.error.collectAsState()
+    val isAdmin by AccountManager.isAdmin.collectAsState()
 
-    // First load + refresh whenever the app comes back to the foreground.
+    // Load account details + servers + notices on first entry and whenever we return to the foreground.
     var lastRefresh by remember { mutableStateOf(0L) }
     LaunchedEffect(resumed) {
         if (resumed && System.currentTimeMillis() - lastRefresh > 120_000) {
             lastRefresh = System.currentTimeMillis()
+            scope.launch { AccountManager.refreshMe(activity) }
+            scope.launch { NoticesStore.refresh(activity) }
             ServerRepository.refreshAll(activity)
         }
     }
@@ -67,6 +91,8 @@ fun ClientApp(activity: MainActivity) {
         if (status == VpnStatus.CONNECTED) {
             delay(4_000)
             ServerRepository.refreshAll(activity)
+            AccountManager.refreshMe(activity)
+            NoticesStore.refresh(activity)
         }
     }
     LaunchedEffect(vpnError) {
@@ -91,7 +117,6 @@ fun ClientApp(activity: MainActivity) {
                 activity.toast("سروری برای اتصال پیدا نشد. چند لحظه بعد دوباره امتحان کنید.")
                 return@launch
             }
-            // The VPN service may only be started while the app is in the foreground.
             activity.resumed.first { it }
             val limit = if (ServerRepository.isPro(activity)) 0 else ServerRepository.config.value.free.sessionMinutes
             try {
@@ -157,7 +182,9 @@ fun ClientApp(activity: MainActivity) {
         launchVpn(job)
     }
 
-    BackHandler(enabled = screen != Screen.HOME && ad == null) { screen = Screen.HOME }
+    BackHandler(enabled = screen != Screen.HOME && ad == null) {
+        screen = if (screen == Screen.INFO || screen == Screen.APPS || screen == Screen.POINTS) Screen.PROFILE else Screen.HOME
+    }
     BackHandler(enabled = ad != null) {
         ad = null
         pending?.cancel()
@@ -172,56 +199,76 @@ fun ClientApp(activity: MainActivity) {
     ) {
         SpaceBackground(connected = status == VpnStatus.CONNECTED)
         Box(Modifier.fillMaxSize().safeDrawingPadding()) {
-        when (screen) {
-            Screen.HOME -> HomeScreen(
-                activity = activity,
-                onConnectClick = { onConnectClick() },
-                onOpenServers = { screen = Screen.SERVERS },
-                onOpenPro = { screen = Screen.PRO },
-                onOpenSettings = { screen = Screen.SETTINGS },
-                onOpenDiagnostics = { screen = Screen.DIAG },
-            )
+            when (screen) {
+                Screen.HOME -> HomeScreen(
+                    activity = activity,
+                    onConnectClick = { onConnectClick() },
+                    onOpenServers = { screen = Screen.SERVERS },
+                    onOpenProfile = { screen = Screen.PROFILE },
+                    onOpenNotices = { screen = Screen.NOTICES },
+                    onOpenPro = { screen = Screen.PRO },
+                )
 
-            Screen.SERVERS -> ServersScreen(
-                activity = activity,
-                onBack = { screen = Screen.HOME },
-                onOpenPro = { screen = Screen.PRO },
-                onSelected = {
-                    screen = Screen.HOME
-                    reconnectIfNeeded()
-                },
-            )
+                Screen.SERVERS -> ServersScreen(
+                    activity = activity,
+                    onBack = { screen = Screen.HOME },
+                    onOpenPro = { screen = Screen.PRO },
+                    onSelected = {
+                        screen = Screen.HOME
+                        reconnectIfNeeded()
+                    },
+                )
 
-            Screen.PRO -> ProScreen(
-                activity = activity,
-                onBack = { screen = Screen.HOME },
-                onActivated = { reconnectIfNeeded() },
-            )
+                Screen.PRO -> ProScreen(
+                    activity = activity,
+                    onBack = { screen = Screen.HOME },
+                    onActivated = { reconnectIfNeeded() },
+                )
 
-            Screen.SETTINGS -> SettingsScreen(
-                activity = activity,
-                onBack = { screen = Screen.HOME },
-                onSettingsChanged = { reconnectIfNeeded() },
-                onOpenDiagnostics = { screen = Screen.DIAG },
-            )
+                Screen.PROFILE -> ProfileScreen(
+                    activity = activity,
+                    onBack = { screen = Screen.HOME },
+                    onOpenInfo = { screen = Screen.INFO },
+                    onOpenApps = { screen = Screen.APPS },
+                    onOpenPoints = { screen = Screen.POINTS },
+                    onOpenPro = { screen = Screen.PRO },
+                    onOpenNotices = { screen = Screen.NOTICES },
+                    onOpenSettings = { screen = Screen.SETTINGS },
+                    onOpenDiagnostics = { screen = Screen.DIAG },
+                    onOpenAdmin = { screen = Screen.ADMIN },
+                )
 
-            Screen.DIAG -> DiagnosticsScreen(activity = activity, onBack = { screen = Screen.HOME })
-        }
+                Screen.INFO -> InfoScreen(activity = activity, onBack = { screen = Screen.PROFILE })
+                Screen.APPS -> AppsScreen(activity = activity, onBack = { screen = Screen.PROFILE }, onChanged = { reconnectIfNeeded() })
+                Screen.POINTS -> PointsScreen(activity = activity, onBack = { screen = Screen.PROFILE }, onOpenPro = { screen = Screen.PRO })
+                Screen.NOTICES -> NoticesScreen(activity = activity, onBack = { screen = Screen.HOME })
 
-        val currentAd = ad
-        if (currentAd != null) {
-            AdScreen(
-                activity = activity,
-                ad = currentAd,
-                onFinished = {
-                    Analytics.track(activity, "ad_done", id = currentAd.id)
-                    ad = null
-                    val job = pending
-                    pending = null
-                    if (job != null) launchVpn(job) else VpnState.status.value = VpnStatus.DISCONNECTED
-                },
-            )
-        }
+                Screen.SETTINGS -> SettingsScreen(
+                    activity = activity,
+                    onBack = { screen = Screen.PROFILE },
+                    onSettingsChanged = { reconnectIfNeeded() },
+                    onOpenDiagnostics = { screen = Screen.DIAG },
+                )
+
+                Screen.DIAG -> DiagnosticsScreen(activity = activity, onBack = { screen = Screen.HOME })
+
+                Screen.ADMIN -> AdminPanel(activity = activity, onExit = { screen = Screen.PROFILE })
+            }
+
+            val currentAd = ad
+            if (currentAd != null) {
+                AdScreen(
+                    activity = activity,
+                    ad = currentAd,
+                    onFinished = {
+                        Analytics.track(activity, "ad_done", id = currentAd.id)
+                        ad = null
+                        val job = pending
+                        pending = null
+                        if (job != null) launchVpn(job) else VpnState.status.value = VpnStatus.DISCONNECTED
+                    },
+                )
+            }
         }
     }
 
@@ -231,7 +278,7 @@ fun ClientApp(activity: MainActivity) {
         onOpenPro = { screen = Screen.PRO },
     )
 
-    // ---------- dialogs ----------
+    // ---------- forced-update dialog ----------
     val versionCode = BuildConfig.VERSION_CODE
     val update = config.update
     val mustUpdate = update.minVersionCode > versionCode && update.url.isNotBlank()
@@ -254,45 +301,6 @@ fun ClientApp(activity: MainActivity) {
             },
             containerColor = AppColors.SurfaceHigh,
         )
-    } else {
-        val notice = config.notice
-        val showNotice = notice.enabled && notice.id.isNotBlank() && notice.id != store.dismissedNoticeId &&
-            !noticeDismissedNow && (notice.title.isNotBlank() || notice.message.isNotBlank())
-        if (showNotice) {
-            AlertDialog(
-                onDismissRequest = {
-                    store.dismissedNoticeId = notice.id
-                    noticeDismissedNow = true
-                },
-                title = if (notice.title.isNotBlank()) {
-                    { Text(notice.title, style = MaterialTheme.typography.titleMedium) }
-                } else null,
-                text = { Text(notice.message, style = MaterialTheme.typography.bodyMedium) },
-                confirmButton = {
-                    if (notice.link.isNotBlank()) {
-                        TextButton(onClick = {
-                            store.dismissedNoticeId = notice.id
-                            noticeDismissedNow = true
-                            activity.openLink(notice.link)
-                        }) { Text(notice.buttonText.ifBlank { "مشاهده" }) }
-                    } else {
-                        TextButton(onClick = {
-                            store.dismissedNoticeId = notice.id
-                            noticeDismissedNow = true
-                        }) { Text("باشه") }
-                    }
-                },
-                dismissButton = if (notice.link.isNotBlank()) {
-                    {
-                        TextButton(onClick = {
-                            store.dismissedNoticeId = notice.id
-                            noticeDismissedNow = true
-                        }) { Text("بستن") }
-                    }
-                } else null,
-                containerColor = AppColors.SurfaceHigh,
-            )
-        }
     }
 }
 

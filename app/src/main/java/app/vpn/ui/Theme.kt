@@ -6,9 +6,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -35,20 +37,29 @@ import androidx.compose.ui.unit.sp
 import app.vpn.R
 
 object AppColors {
-    val Background = Color(0xFF0B1020)
-    val Surface = Color(0xFF141B2E)
-    val SurfaceHigh = Color(0xFF1C2540)
-    val Border = Color(0xFF26304D)
-    val Primary = Color(0xFF3B82F6)
-    val PrimaryDark = Color(0xFF1D4ED8)
-    val Connected = Color(0xFF22C55E)
-    val Connecting = Color(0xFFF59E0B)
-    val Danger = Color(0xFFEF4444)
-    val Gold = Color(0xFFFBBF24)
-    val TextPrimary = Color(0xFFF1F5F9)
-    val TextSecondary = Color(0xFF94A3B8)
-    val TextMuted = Color(0xFF64748B)
+    // FAIROS identity: deep space background, blue -> violet -> magenta brand gradient.
+    val Background = Color(0xFF05060D)
+    val Surface = Color(0xFF12152A)
+    val SurfaceHigh = Color(0xFF1A1E3A)
+    val Border = Color(0xFF2A2F55)
+    val Blue = Color(0xFF3A7BFF)
+    val Violet = Color(0xFF8B6CFF)
+    val Magenta = Color(0xFFC04BFF)
+    val Primary = Violet
+    val PrimaryDark = Color(0xFF5B46C9)
+    val Connected = Color(0xFF2FE3B8)
+    val Connecting = Color(0xFFF2A93C)
+    val Danger = Color(0xFFFF5C7A)
+    val Gold = Color(0xFFF3CF7A)
+    val TextPrimary = Color(0xFFEEF0FA)
+    val TextSecondary = Color(0xFF9AA0C4)
+    val TextMuted = Color(0xFF686E96)
+
+    val brand = listOf(Blue, Violet, Magenta)
 }
+
+/** The FAIROS blue -> violet -> magenta gradient, for buttons, accents and text. */
+fun brandBrush(): Brush = Brush.linearGradient(AppColors.brand)
 
 val Vazir = FontFamily(
     Font(R.font.vazirmatn_regular, FontWeight.Normal),
@@ -150,6 +161,74 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier) {
         modifier = modifier.padding(horizontal = 4.dp, vertical = 8.dp),
     )
 }
+
+/** The FAIROS shield logo. */
+@Composable
+fun FairosLogo(modifier: Modifier = Modifier, size: Dp = 96.dp) {
+    androidx.compose.foundation.Image(
+        painter = painterResource(R.drawable.fairos_logo),
+        contentDescription = "FAIROS",
+        modifier = modifier.size(size),
+    )
+}
+
+/** The FAIROS VPN wordmark (keeps its own aspect ratio). */
+@Composable
+fun FairosWordmark(modifier: Modifier = Modifier, height: Dp = 22.dp) {
+    androidx.compose.foundation.Image(
+        painter = painterResource(R.drawable.fairos_wordmark),
+        contentDescription = "FAIROS VPN",
+        modifier = modifier.height(height),
+        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+    )
+}
+
+/** Text painted with the brand gradient. */
+@Composable
+fun GradientText(text: String, style: TextStyle, modifier: Modifier = Modifier, fontWeight: FontWeight? = null) {
+    Text(
+        text = text,
+        style = style.copy(brush = brandBrush()),
+        fontWeight = fontWeight,
+        modifier = modifier,
+    )
+}
+
+/** A rounded gradient action button. */
+@Composable
+fun GradientButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    loading: Boolean = false,
+) {
+    val shape = RoundedCornerShape(16.dp)
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .shadow(if (enabled) 10.dp else 0.dp, shape, spotColor = AppColors.Violet.copy(alpha = 0.6f))
+            .clip(shape)
+            .background(if (enabled) brandBrush() else Brush.linearGradient(listOf(AppColors.SurfaceHigh, AppColors.SurfaceHigh)))
+            .then(if (enabled && !loading) Modifier.androidxClick(onClick) else Modifier)
+            .padding(vertical = 15.dp),
+        contentAlignment = androidx.compose.ui.Alignment.Center,
+    ) {
+        if (loading) {
+            androidx.compose.material3.CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.dp,
+                color = Color.White,
+            )
+        } else {
+            Text(text, color = if (enabled) Color.White else AppColors.TextMuted, style = MaterialTheme.typography.titleSmall)
+        }
+    }
+}
+
+private fun Modifier.androidxClick(onClick: () -> Unit): Modifier = this.then(
+    androidx.compose.foundation.clickable(onClick = onClick),
+)
 
 @Composable
 fun Pill(text: String, color: Color, modifier: Modifier = Modifier) {

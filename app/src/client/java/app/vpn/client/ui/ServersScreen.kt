@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -57,11 +58,12 @@ fun ServersScreen(
     val config by ServerRepository.config.collectAsState()
     val freeServers by ServerRepository.freeServers.collectAsState()
     val proServers by ServerRepository.proServers.collectAsState()
-    val proInfo by ServerRepository.proInfo.collectAsState()
+    val proShowcase by ServerRepository.proShowcase.collectAsState()
+    val accountIsPro by ServerRepository.accountIsPro.collectAsState()
     val delays by ServerRepository.delays.collectAsState()
     val testing by ServerRepository.testing.collectAsState()
     val refreshing by ServerRepository.refreshing.collectAsState()
-    val isPro = remember(proServers, proInfo) { ServerRepository.isPro(activity) }
+    var lockedDialog by remember { mutableStateOf(false) }
 
     fun select(key: String) {
         selectedKey = key
@@ -111,7 +113,7 @@ fun ServersScreen(
                 )
             }
 
-            if (isPro && proServers.isNotEmpty()) {
+            if (accountIsPro && proServers.isNotEmpty()) {
                 item { SectionTitle("سرورهای پرو ⭐") }
                 items(proServers, key = { "p_" + it.key }) { s ->
                     ServerRow(
@@ -124,18 +126,17 @@ fun ServersScreen(
                         onClick = { select(s.key) },
                     )
                 }
-            } else if (config.pro.enabled && config.pro.showcase.isNotEmpty()) {
-                item { SectionTitle("سرورهای پرو") }
-                val showcase = config.pro.showcase
-                items(showcase.size, key = { "show_$it" }) { index ->
+            } else if (proShowcase.isNotEmpty()) {
+                item { SectionTitle("سرورهای پرو ⭐") }
+                items(proShowcase.size, key = { "show_$it" }) { index ->
                     ServerRow(
-                        title = showcase[index],
+                        title = proShowcase[index],
                         subtitle = "مخصوص کاربران پرو",
-                        icon = R.drawable.ic_lock,
+                        icon = R.drawable.ic_star,
                         selected = false,
                         delay = null,
                         locked = true,
-                        onClick = onOpenPro,
+                        onClick = { lockedDialog = true },
                     )
                 }
             }
@@ -166,6 +167,25 @@ fun ServersScreen(
             }
             item { Spacer(Modifier.height(24.dp)) }
         }
+    }
+
+    if (lockedDialog) {
+        AlertDialog(
+            onDismissRequest = { lockedDialog = false },
+            icon = { AppIcon(R.drawable.ic_crown, tint = AppColors.Gold, size = 32.dp) },
+            title = { Text("سرور ویژهٔ پرو", style = MaterialTheme.typography.titleMedium, color = AppColors.Gold) },
+            text = {
+                Text(
+                    "این سرور مخصوص کاربران پروست. با تهیهٔ اشتراک پرو به سرورهای پرسرعت اختصاصی و بدون محدودیت دسترسی پیدا می‌کنید.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { lockedDialog = false; onOpenPro() }) { Text("تهیهٔ اشتراک پرو", color = AppColors.Gold) }
+            },
+            dismissButton = { TextButton(onClick = { lockedDialog = false }) { Text("بعداً") } },
+            containerColor = AppColors.SurfaceHigh,
+        )
     }
 }
 

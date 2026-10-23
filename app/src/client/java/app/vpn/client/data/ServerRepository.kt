@@ -9,6 +9,7 @@ import app.vpn.common.ConfigSource
 import app.vpn.common.Http
 import app.vpn.common.LinkParser
 import app.vpn.common.ManualServer
+import app.vpn.common.ProServer
 import app.vpn.common.RemoteConfig
 import app.vpn.common.ServerProfile
 import app.vpn.common.SubscriptionFetcher
@@ -36,7 +37,12 @@ object ServerRepository {
 
     val config = MutableStateFlow(RemoteConfig())
     val freeServers = MutableStateFlow<List<ServerProfile>>(emptyList())
+    /** Pro server profiles the signed-in pro account may use (empty for free users). */
     val proServers = MutableStateFlow<List<ServerProfile>>(emptyList())
+    /** Pro location names shown locked+starred to free users. */
+    val proShowcase = MutableStateFlow<List<String>>(emptyList())
+    /** Whether the signed-in account currently has pro. */
+    val accountIsPro = MutableStateFlow(false)
     val proInfo = MutableStateFlow<SubscriptionInfo?>(null)
     val proInfoLines = MutableStateFlow<List<String>>(emptyList())
     val delays = MutableStateFlow<Map<String, Long>>(emptyMap())
@@ -73,36 +79,38 @@ object ServerRepository {
         val cachedFree = parseEntries(readEntries(store, ClientStore.FILE_FREE), config.value.free.hideKeywords)
         freeServers.value = cachedFree.ifEmpty { parseEntries(snapshotEntries(config.value), config.value.free.hideKeywords) }
         proServers.value = parseEntries(readEntries(store, ClientStore.FILE_PRO), emptyList())
-        proInfo.value = SubscriptionInfo.parse(store.proInfoHeader)
-        proInfoLines.value = store.readList(ClientStore.FILE_PRO_INFO_LINES)
-    }
-
-    // ---------- pro status ----------
-
-    fun isPro(context: Context): Boolean {
-        val store = ClientStore(context)
-        if (store.proLink.isBlank()) return false
-        if (proServers.value.isEmpty()) return false
-        val info = proInfo.value ?: return true
-        return !info.isExpired() && !info.isOutOfData()
-    }
-
-    fun proProblem(context: Context): String? {
-        val store = ClientStore(context)
-        if (store.proLink.isBlank()) return null
-        val info = proInfo.value
-        return when {
-            info?.isExpired() == true -> "اشتراک پرو شما تمام شده است."
-            info?.isOutOfData() == true -> "حجم اشتراک پرو شما تمام شده است."
-            proServers.value.isEmpty() -> "سروری در اشتراک پرو شما پیدا نشد."
-            else -> null
+        // Restore pro status from the cached account so pro works offline until /me refreshes.
+        accountIsPro.value = try {
+            val j = store.accountJson
+            j.isNotBlank() && org.json.JSONObject(j).optLong("proUntil") > System.currentTimeMillis()
+        } catch (e: Exception) {
+            false
         }
     }
+
+    // ---------- pro status (account-based) ----------
+
+    /** Feeds pro servers from the signed-in account (/me). Names are shown to everyone; links only to pro. */
+    fun setProServers(context: Context, servers: List<ProServer>, showcase: List<String>, isPro: Boolean) {
+        accountIsPro.value = isPro
+        proShowcase.value = showcase.distinct()
+        val parsed = parseEntries(servers.map { ManualServer(it.name, it.link) }, emptyList())
+        proServers.value = parsed
+        writeEntries(ClientStore(context), ClientStore.FILE_PRO, servers.map { ManualServer(it.name, it.link) })
+        if (!isPro) {
+            val store = ClientStore(context)
+            if (store.selectedKey != ClientStore.AUTO && proServers.value.none { it.key == store.selectedKey } && freeServers.value.none { it.key == store.selectedKey }) {
+                store.selectedKey = ClientStore.AUTO
+            }
+        }
+    }
+
+    fun isPro(context: Context): Boolean = accountIsPro.value
 
     /** All servers the user may connect to. */
     fun usableServers(context: Context): List<ServerProfile> {
         val list = mutableListOf<ServerProfile>()
-        if (isPro(context)) list.addAll(proServers.value)
+        if (accountIsPro.value) list.addAll(proServers.value)
         if (config.value.free.enabled) list.addAll(freeServers.value)
         return list.distinctBy { it.key }
     }

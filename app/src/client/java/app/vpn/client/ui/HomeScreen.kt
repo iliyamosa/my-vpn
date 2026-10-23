@@ -1,13 +1,6 @@
 package app.vpn.client.ui
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,12 +14,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -44,16 +35,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import app.vpn.BuildConfig
 import app.vpn.R
 import app.vpn.client.MainActivity
+import app.vpn.client.data.AccountManager
 import app.vpn.client.data.ClientStore
+import app.vpn.client.data.NoticesStore
 import app.vpn.client.data.ServerRepository
 import app.vpn.client.vpn.VpnState
 import app.vpn.client.vpn.VpnStatus
@@ -63,7 +53,6 @@ import app.vpn.ui.AppCard
 import app.vpn.ui.AppColors
 import app.vpn.ui.AppIcon
 import app.vpn.ui.Pill
-import app.vpn.ui.rememberDeviceTilt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -72,9 +61,9 @@ fun HomeScreen(
     activity: MainActivity,
     onConnectClick: () -> Unit,
     onOpenServers: () -> Unit,
+    onOpenProfile: () -> Unit,
+    onOpenNotices: () -> Unit,
     onOpenPro: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onOpenDiagnostics: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val status by VpnState.status.collectAsState()
@@ -85,70 +74,57 @@ fun HomeScreen(
     val config by ServerRepository.config.collectAsState()
     val freeServers by ServerRepository.freeServers.collectAsState()
     val proServers by ServerRepository.proServers.collectAsState()
-    val proInfo by ServerRepository.proInfo.collectAsState()
+    val accountIsPro by ServerRepository.accountIsPro.collectAsState()
     val refreshing by ServerRepository.refreshing.collectAsState()
     val lastError by ServerRepository.lastError.collectAsState()
     val freeError by ServerRepository.lastFreeError.collectAsState()
     val delays by ServerRepository.delays.collectAsState()
 
-    val isPro = remember(proServers, proInfo) { ServerRepository.isPro(activity) }
-    val proProblem = remember(proServers, proInfo) { ServerRepository.proProblem(activity) }
+    val avatar by AccountManager.avatar.collectAsState()
+    val account by AccountManager.account.collectAsState()
+    val unread by NoticesStore.unread.collectAsState()
+
+    val deadline by VpnState.sessionDeadline.collectAsState()
+    val ping by VpnState.pingMs.collectAsState()
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(status) {
+        while (status == VpnStatus.CONNECTED) {
+            now = System.currentTimeMillis()
+            delay(1000)
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 18.dp, vertical = 12.dp),
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // Header
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            AppIcon(R.drawable.ic_shield, tint = AppColors.Primary, size = 26.dp)
-            Spacer(Modifier.width(8.dp))
-            Text(
-                stringResource(R.string.app_name),
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (isPro) Pill("پرو", AppColors.Gold)
-            if (config.support.telegram.isNotBlank()) {
-                IconButton(onClick = { activity.openLink(config.support.telegram) }) {
-                    AppIcon(R.drawable.ic_send, tint = AppColors.TextSecondary)
-                }
-            }
-            IconButton(onClick = onOpenSettings) {
-                AppIcon(R.drawable.ic_tune, tint = AppColors.TextSecondary)
-            }
-        }
-
-        val tilt by rememberDeviceTilt()
-        val deadline by VpnState.sessionDeadline.collectAsState()
-        val ping by VpnState.pingMs.collectAsState()
-        var now by remember { mutableStateOf(System.currentTimeMillis()) }
-        LaunchedEffect(status) {
-            while (status == VpnStatus.CONNECTED) {
-                now = System.currentTimeMillis()
-                delay(1000)
-            }
-        }
-
-        // 3D globe with the connection arc
-        Globe3D(
-            connected = status == VpnStatus.CONNECTED,
-            busy = status == VpnStatus.CONNECTING || status == VpnStatus.DISCONNECTING,
-            serverName = serverName,
-            tiltX = tilt.x,
-            tiltY = tilt.y,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(250.dp),
+        HomeTopBar(
+            avatar = avatar,
+            unreadNotices = unread,
+            isPro = accountIsPro,
+            onOpenNotices = onOpenNotices,
+            onOpenProfile = onOpenProfile,
         )
 
-        ConnectButton3D(status = status, tiltX = tilt.x, tiltY = tilt.y, onClick = onConnectClick)
+        Spacer(Modifier.height(4.dp))
+        val hello = account?.displayName?.takeIf { it.isNotBlank() }
+        if (hello != null) {
+            Text(
+                "سلام، $hello",
+                style = MaterialTheme.typography.bodyMedium,
+                color = AppColors.TextSecondary,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+            )
+        }
 
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(18.dp))
+
+        // The branded connect element.
+        ConnectButton(status = status, onClick = onConnectClick, size = 220.dp)
+
+        Spacer(Modifier.height(16.dp))
 
         val statusText = when (status) {
             VpnStatus.DISCONNECTED -> "متصل نیستید"
@@ -194,12 +170,12 @@ fun HomeScreen(
                     modifier = Modifier
                         .clip(RoundedCornerShape(50))
                         .background(AppColors.Gold.copy(alpha = 0.14f))
-                        .clickable(enabled = config.pro.enabled) { onOpenPro() }
+                        .clickable { onOpenPro() }
                         .padding(horizontal = 14.dp, vertical = 6.dp),
                 ) {
                     Text(
                         String.format(java.util.Locale.US, "زمان رایگان باقی‌مانده: %02d:%02d", left / 60, left % 60).faDigits() +
-                            if (config.pro.enabled) "  •  بدون محدودیت با پرو" else "",
+                            "  •  بدون محدودیت با پرو",
                         color = AppColors.Gold,
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -214,102 +190,102 @@ fun HomeScreen(
             )
         }
 
-        Spacer(Modifier.height(26.dp))
+        Spacer(Modifier.height(24.dp))
 
-        // Server card
-        val store = remember { ClientStore(activity) }
-        val selectedKey = store.selectedKey
-        val all = remember(freeServers, proServers, isPro) { ServerRepository.usableServers(activity) }
-        val selected = all.firstOrNull { it.key == selectedKey }
-        val displayName = when {
-            status == VpnStatus.CONNECTED && serverName.isNotBlank() -> serverName
-            selected != null -> selected.remarks
-            else -> "خودکار (سریع‌ترین سرور)"
-        }
-        AppCard(modifier = Modifier.clickable { onOpenServers() }) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(AppColors.Primary.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    AppIcon(if (selected == null) R.drawable.ic_bolt else R.drawable.ic_servers, tint = AppColors.Primary)
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("سرور", style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted)
-                    Text(displayName, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                val d = selected?.let { delays[it.key] }
-                if (d != null) DelayPill(d)
-                Spacer(Modifier.width(6.dp))
-                AppIcon(R.drawable.ic_back, tint = AppColors.TextMuted, size = 20.dp, modifier = Modifier.scale(-1f, 1f))
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            // Server card
+            val store = remember { ClientStore(activity) }
+            val selectedKey = store.selectedKey
+            val all = remember(freeServers, proServers, accountIsPro) { ServerRepository.usableServers(activity) }
+            val selected = all.firstOrNull { it.key == selectedKey }
+            val displayName = when {
+                status == VpnStatus.CONNECTED && serverName.isNotBlank() -> serverName
+                selected != null -> selected.remarks
+                else -> "خودکار (سریع‌ترین سرور)"
             }
-            if (all.isEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    if (refreshing) "در حال دریافت لیست سرورها…" else "هنوز سروری دریافت نشده است.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = AppColors.Connecting,
-                )
-            }
-        }
-
-        if (all.isEmpty() && !refreshing) {
-            Spacer(Modifier.height(8.dp))
-            val reason = freeError ?: lastError
-            if (!reason.isNullOrBlank()) {
-                Text(reason, color = AppColors.Danger, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { scope.launch { ServerRepository.refreshAll(activity) } }) {
-                    AppIcon(R.drawable.ic_refresh, tint = AppColors.Primary, size = 18.dp)
-                    Spacer(Modifier.width(6.dp))
-                    Text("تلاش دوباره", color = AppColors.Primary)
-                }
-                TextButton(onClick = onOpenDiagnostics) {
-                    Text("عیب‌یابی", color = AppColors.Connecting)
-                }
-            }
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        // Pro card
-        when {
-            isPro -> ProStatusCard(info = proInfo, onClick = onOpenPro)
-            proProblem != null -> AppCard(modifier = Modifier.clickable { onOpenPro() }) {
-                Text(proProblem, color = AppColors.Danger, style = MaterialTheme.typography.titleSmall)
-                Spacer(Modifier.height(4.dp))
-                Text("برای تمدید یا وارد کردن لینک جدید ضربه بزنید.", style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
-            }
-
-            config.pro.enabled -> AppCard(color = Color(0xFF2A2210), glow = AppColors.Gold, modifier = Modifier.clickable { onOpenPro() }) {
+            AppCard(modifier = Modifier.clickable { onOpenServers() }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    AppIcon(R.drawable.ic_star, tint = AppColors.Gold, size = 28.dp)
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(AppColors.Primary.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        AppIcon(if (selected == null) R.drawable.ic_bolt else R.drawable.ic_servers, tint = AppColors.Primary)
+                    }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(config.pro.title, style = MaterialTheme.typography.titleSmall, color = AppColors.Gold)
-                        Text(config.pro.description, style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
+                        Text("سرور", style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted)
+                        Text(displayName, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    Button(
-                        onClick = onOpenPro,
-                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Gold, contentColor = Color(0xFF1F1500)),
-                        shape = RoundedCornerShape(12.dp),
-                    ) { Text("ارتقا") }
+                    val d = selected?.let { delays[it.key] }
+                    if (d != null) DelayPill(d)
+                    Spacer(Modifier.width(6.dp))
+                    AppIcon(R.drawable.ic_back, tint = AppColors.TextMuted, size = 20.dp, modifier = Modifier.scale(-1f, 1f))
+                }
+                if (all.isEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        if (refreshing) "در حال دریافت لیست سرورها…" else "هنوز سروری دریافت نشده است.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = AppColors.Connecting,
+                    )
                 }
             }
-        }
 
-        Spacer(Modifier.height(20.dp))
-        Text(
-            "نسخه ${BuildConfig.VERSION_NAME}".faDigits(),
-            style = MaterialTheme.typography.bodySmall,
-            color = AppColors.TextMuted,
-            textAlign = TextAlign.Center,
-        )
+            if (all.isEmpty() && !refreshing) {
+                val reason = freeError ?: lastError
+                if (!reason.isNullOrBlank()) {
+                    Text(reason, color = AppColors.Danger, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { scope.launch { ServerRepository.refreshAll(activity) } }) {
+                        AppIcon(R.drawable.ic_refresh, tint = AppColors.Primary, size = 18.dp)
+                        Spacer(Modifier.width(6.dp))
+                        Text("تلاش دوباره", color = AppColors.Primary)
+                    }
+                }
+            }
+
+            // Pro card
+            if (accountIsPro) {
+                ProStatusCard(account = account, onClick = onOpenPro)
+            } else {
+                AppCard(color = Color(0xFF2A2210), glow = AppColors.Gold, modifier = Modifier.clickable { onOpenPro() }) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        AppIcon(R.drawable.ic_crown, tint = AppColors.Gold, size = 28.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(config.pro.title.ifBlank { "اشتراک پرو" }, style = MaterialTheme.typography.titleSmall, color = AppColors.Gold)
+                            Text(
+                                config.pro.description.ifBlank { "سرورهای پرسرعت اختصاصی، بدون محدودیت زمان و تبلیغات" },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = AppColors.TextSecondary,
+                            )
+                        }
+                        Button(
+                            onClick = onOpenPro,
+                            colors = ButtonDefaults.buttonColors(containerColor = AppColors.Gold, contentColor = Color(0xFF1F1500)),
+                            shape = RoundedCornerShape(12.dp),
+                        ) { Text("ارتقا") }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "نسخه ${BuildConfig.VERSION_NAME}".faDigits(),
+                style = MaterialTheme.typography.bodySmall,
+                color = AppColors.TextMuted,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(16.dp))
+        }
     }
 }
 
@@ -325,34 +301,16 @@ fun DelayPill(ms: Long) {
 }
 
 @Composable
-fun ProStatusCard(info: app.vpn.common.SubscriptionInfo?, onClick: () -> Unit) {
+fun ProStatusCard(account: app.vpn.common.Account?, onClick: () -> Unit) {
     AppCard(color = Color(0xFF2A2210), glow = AppColors.Gold, modifier = Modifier.clickable { onClick() }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            AppIcon(R.drawable.ic_star, tint = AppColors.Gold, size = 24.dp)
+            AppIcon(R.drawable.ic_crown, tint = AppColors.Gold, size = 24.dp)
             Spacer(Modifier.width(10.dp))
             Text("اشتراک پرو فعال است", style = MaterialTheme.typography.titleSmall, color = AppColors.Gold, modifier = Modifier.weight(1f))
-            if (info != null && info.daysLeft() >= 0) {
-                Text("${info.daysLeft()} روز مانده".faDigits(), style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
+            val daysLeft = account?.let { ((it.proUntil - System.currentTimeMillis()) / 86_400_000L).coerceAtLeast(0) }
+            if (daysLeft != null) {
+                Text("$daysLeft روز مانده".faDigits(), style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
             }
-        }
-        if (info != null && info.total > 0) {
-            Spacer(Modifier.height(10.dp))
-            val fraction = (info.used.toFloat() / info.total.toFloat()).coerceIn(0f, 1f)
-            LinearProgressIndicator(
-                progress = { fraction },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(50)),
-                color = if (fraction > 0.9f) AppColors.Danger else AppColors.Gold,
-                trackColor = Color.White.copy(alpha = 0.08f),
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "${formatBytes(info.used)} از ${formatBytes(info.total)} مصرف شده".faDigits(),
-                style = MaterialTheme.typography.bodySmall,
-                color = AppColors.TextSecondary,
-            )
         }
     }
 }
