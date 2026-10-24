@@ -62,9 +62,9 @@ fun ProScreen(activity: MainActivity, onBack: () -> Unit, onActivated: () -> Uni
     var msg by remember { mutableStateOf<String?>(null) }
     var msgError by remember { mutableStateOf(false) }
 
-    val buyUrl = remember(config) {
-        config.pro.buyLink.ifBlank { Backend.baseUrl(config) + "/buy" }
-    }
+    // Always open the purchase website on our own domain (the Zarinpal flow). The old
+    // config.pro.buyLink is often a Telegram link and must not hijack the buy button.
+    val buyUrl = remember(config) { Backend.baseUrl(config) + "/buy" }
 
     fun reload() {
         scope.launch {
