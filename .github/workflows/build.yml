@@ -9,6 +9,7 @@ on:
     paths-ignore:
       - 'remote/ads/**'
       - 'backend/**'
+      - 'tunnel/**'
       - 'wrangler.toml'
       - '**.md'
   workflow_dispatch:

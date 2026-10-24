@@ -29,9 +29,10 @@ export default {
         if (url.pathname === "/") return new Response("ok", { status: 200 });
         if (url.pathname === "/health") {
           // Runtime self-test: can this Worker open an outbound TCP socket?
+          // Connect to a real external host (NOT a Cloudflare IP — Workers refuse those).
           try {
             const connect = await getConnect();
-            const socket = connect({ hostname: "1.1.1.1", port: 443 });
+            const socket = connect({ hostname: "www.google.com", port: 443 });
             if (socket.opened) await socket.opened;
             try { await socket.close(); } catch (e) {}
             return new Response("sockets ok", { status: 200 });
