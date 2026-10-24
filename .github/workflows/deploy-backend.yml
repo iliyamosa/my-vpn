@@ -1,0 +1,35 @@
+name: Deploy backend
+
+# Deploys the Cloudflare Worker (backend/src + wrangler.toml) whenever the backend changes
+# on main, and on manual run. Needs one repo secret: CLOUDFLARE_API_TOKEN
+# (optionally CLOUDFLARE_ACCOUNT_ID). This replaces the unreliable Workers Builds auto-deploy.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'wrangler.toml'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
