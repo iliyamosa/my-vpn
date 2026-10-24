@@ -162,7 +162,7 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
-    if (path === "/") return json({ ok: true, service: "fairosvpn" });
+    if (path === "/") return json({ ok: true, service: "fairosvpn", build: "20261024-pbkdf100k" });
     // The purchase website is served straight from the Worker.
     if (path === "/buy" || path === "/pay/callback") {
       const stub0 = env.HUB.get(env.HUB.idFromName("main"));
