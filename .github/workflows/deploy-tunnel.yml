@@ -47,6 +47,10 @@ jobs:
             echo "Tunnel deployed (run ${{ github.run_number }})."
             echo
             echo "URL: ${URL:-unknown}"
+            echo
+            echo '```'
+            grep -iE "version id|uploaded|total upload|deployed|current version|worker startup|no changes|triggers" deploy.log 2>/dev/null | head -20 || true
+            echo '```'
           } > turl.md
           gh issue create --title "Tunnel deployed #${{ github.run_number }}" --body-file turl.md || true
 
