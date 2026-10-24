@@ -1,8 +1,8 @@
 name: Deploy backend
 
 # Deploys the Cloudflare Worker (backend/src + wrangler.toml) whenever the backend changes
-# on main, and on manual run. Needs one repo secret: CLOUDFLARE_API_TOKEN
-# (optionally CLOUDFLARE_ACCOUNT_ID). This replaces the unreliable Workers Builds auto-deploy.
+# on main, and on manual run. Auth via repo secrets: either CLOUDFLARE_API_TOKEN, or the
+# Global API Key pair CLOUDFLARE_API_KEY + CLOUDFLARE_EMAIL. CLOUDFLARE_ACCOUNT_ID optional.
 
 on:
   push:
@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: deploy-backend
@@ -27,13 +28,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Deploy to Cloudflare Workers
-        uses: cloudflare/wrangler-action@v3
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy
+          node-version: '22'
+
+      - name: Deploy with wrangler
+        id: deploy
         env:
-          # Fallback auth with the Global API Key, used when CLOUDFLARE_API_TOKEN is not set.
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -o pipefail
+          npx --yes wrangler@4 deploy 2>&1 | tee deploy.log
+
+      - name: Report failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "Backend deploy failed (run ${{ github.run_number }})."
+            echo
+            echo '### Relevant lines'
+            echo '```'
+            grep -iE "error|account|auth|code:|more than one|not found|unauthor|forbidden|missing|invalid|required|binding|durable|migration|✘|✓ |Uploaded|Deployed" deploy.log 2>/dev/null | head -50 || echo "(no deploy.log)"
+            echo '```'
+          } > dreport.md
+          gh issue create --title "Backend deploy failed #${{ github.run_number }}" --body-file dreport.md || true
