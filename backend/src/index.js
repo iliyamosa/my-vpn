@@ -54,6 +54,37 @@ function zpError(data) {
   if (data && data.data && data.data.message) return data.data.message;
   return "ایجاد تراکنش ناموفق بود.";
 }
+/** True when the configured gateway is AqayePardakht (various spellings). */
+function isAqaye(g) {
+  const s = String(g || "").toLowerCase();
+  return s.includes("aqaye") || s.includes("aghaye") || s.includes("aqayepardakht") || s.includes("aghapardakht") || s.includes("آقای");
+}
+/** Maps an AqayePardakht error code to a readable Persian message. */
+function aqayeError(code) {
+  const m = {
+    "-1": "مبلغ خالی است", "-2": "کد درگاه (pin) خالی است", "-3": "آدرس بازگشت خالی است",
+    "-4": "مبلغ عددی نیست", "-5": "مبلغ باید بین ۱۰۰ تا ۱۰۰٬۰۰۰٬۰۰۰ تومان باشد",
+    "-6": "کد درگاه (pin) نادرست است", "-7": "کد تراکنش خالی است", "-8": "تراکنش پیدا نشد",
+    "-9": "کد درگاه با این تراکنش هم‌خوانی ندارد", "-10": "مبلغ با تراکنش هم‌خوانی ندارد",
+    "-11": "درگاه در انتظار تأیید یا غیرفعال است", "-12": "این درگاه اجازهٔ تراکنش ندارد",
+    "-13": "شمارهٔ کارت باید ۱۶ رقمی باشد", "-14": "این درگاه قبلاً برای سایت دیگری استفاده شده است",
+  };
+  return m[String(code)] || `کد خطای ${code}`;
+}
+/** Reads POST params from a request body (JSON or url-encoded form). */
+async function readForm(request) {
+  try {
+    if (!request || request.method === "GET") return {};
+    const ct = (request.headers.get("content-type") || "").toLowerCase();
+    if (ct.includes("application/json")) return await request.json();
+    const text = await request.text();
+    const out = {};
+    for (const [k, v] of new URLSearchParams(text)) out[k] = v;
+    return out;
+  } catch (e) {
+    return {};
+  }
+}
 
 const PAGE_CSS = `<style>
 *{box-sizing:border-box}
@@ -176,7 +207,7 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
-    if (path === "/") return json({ ok: true, service: "fairosvpn", build: "20261024-zperr" });
+    if (path === "/") return json({ ok: true, service: "fairosvpn", build: "20261024-aqaye" });
     // The purchase website is served straight from the Worker.
     if (path === "/buy" || path === "/pay/callback") {
       const stub0 = env.HUB.get(env.HUB.idFromName("main"));
@@ -319,7 +350,7 @@ export class Hub {
         // ---- purchase website
         case "/buy": return this.buyPage(url.origin);
         case "/pay/start": return json(await this.payStart(await body(), url.origin));
-        case "/pay/callback": return this.payCallback(url);
+        case "/pay/callback": return this.payCallback(request, url);
 
         default: return json({ error: "not found" }, 404);
       }
@@ -347,11 +378,13 @@ export class Hub {
     };
   }
 
-  // ---------- purchase website + Zarinpal payment
+  // ---------- purchase website + payment gateways (Zarinpal and AqayePardakht)
 
-  zpBase() { return A.kvGet(this.sql, "sandbox", "0") === "1" ? "https://sandbox.zarinpal.com" : "https://payment.zarinpal.com"; }
+  gateway() { return A.kvGet(this.sql, "gateway", "zarinpal"); }
+  sandboxOn() { return A.kvGet(this.sql, "sandbox", "0") === "1"; }
+  zpBase() { return this.sandboxOn() ? "https://sandbox.zarinpal.com" : "https://payment.zarinpal.com"; }
 
-  /** Verifies the buyer, creates a Zarinpal payment and returns the gateway redirect URL. */
+  /** Verifies the buyer, creates a payment at the configured gateway and returns the redirect URL. */
   async payStart(body, origin) {
     const acc = await A.findForPurchase(this.sql, body); // throws 401 on bad credentials
     const plan = A.getPlan(this.sql, body.planId);
@@ -360,8 +393,13 @@ export class Hub {
     if (amountToman <= 0) throw new A.ApiError(400, "این پلن برای خرید آنلاین تنظیم نشده است. با پشتیبانی تماس بگیرید.");
     const merchantId = A.kvGet(this.sql, "merchant_id", "");
     if (!merchantId) throw new A.ApiError(503, "درگاه پرداخت هنوز توسط مدیر تنظیم نشده است.");
-    const amountRial = amountToman * 10;
     const callback = `${origin}/pay/callback`;
+    if (isAqaye(this.gateway())) return this.payStartAqaye(acc, plan, amountToman, merchantId, callback);
+    return this.payStartZarinpal(acc, plan, amountToman, merchantId, callback);
+  }
+
+  async payStartZarinpal(acc, plan, amountToman, merchantId, callback) {
+    const amountRial = amountToman * 10;
     const r = await fetch(`${this.zpBase()}/pg/v4/payment/request.json`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -371,8 +409,7 @@ export class Hub {
       }),
     });
     const data = await r.json().catch(() => ({}));
-    const code = data?.data?.code;
-    if (code !== 100 || !data?.data?.authority) {
+    if (data?.data?.code !== 100 || !data?.data?.authority) {
       throw new A.ApiError(502, `خطای درگاه پرداخت: ${zpError(data)}`);
     }
     const authority = data.data.authority;
@@ -380,10 +417,35 @@ export class Hub {
     return { ok: true, redirect: `${this.zpBase()}/pg/StartPay/${authority}` };
   }
 
-  /** Gateway return URL: verifies the payment and instantly activates pro for the buyer. */
-  async payCallback(url) {
-    const authority = url.searchParams.get("Authority") || "";
-    const status = url.searchParams.get("Status") || "";
+  async payStartAqaye(acc, plan, amountToman, pin, callback) {
+    const r = await fetch("https://panel.aqayepardakht.ir/api/v2/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ pin, amount: amountToman, callback, description: `${plan.title} — FAIROS VPN`, email: acc.email }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (data?.status !== "success" || !data?.transid) {
+      throw new A.ApiError(502, `خطای درگاه پرداخت: ${aqayeError(data?.code)}`);
+    }
+    const transid = String(data.transid);
+    // AqayePardakht works in Toman, so the stored amount (used again at verify) is in Toman.
+    A.createPayment(this.sql, { authority: transid, accountId: acc.id, planId: plan.id, amount: amountToman });
+    const base = this.sandboxOn() ? "https://panel.aqayepardakht.ir/startpay/sandbox" : "https://panel.aqayepardakht.ir/startpay";
+    return { ok: true, redirect: `${base}/${transid}` };
+  }
+
+  /** Gateway return URL. Zarinpal uses GET ?Authority&Status; AqayePardakht POSTs transid/status. */
+  async payCallback(request, url) {
+    const zAuth = url.searchParams.get("Authority") || "";
+    if (zAuth) return this.payCallbackZarinpal(zAuth, url.searchParams.get("Status") || "");
+    const form = await readForm(request);
+    const transid = String(form.transid || url.searchParams.get("transid") || "");
+    const status = String(form.status != null ? form.status : (url.searchParams.get("status") || ""));
+    if (transid) return this.payCallbackAqaye(transid, status);
+    return this.resultPage(false, "اطلاعات بازگشت از درگاه ناقص بود.");
+  }
+
+  async payCallbackZarinpal(authority, status) {
     const pay = A.getPayment(this.sql, authority);
     if (!pay) return this.resultPage(false, "تراکنش پیدا نشد.");
     if (pay.status === "paid") return this.resultPage(true, "این پرداخت قبلاً ثبت شده و اشتراک شما فعال است.", pay.ref_id);
@@ -406,6 +468,33 @@ export class Hub {
       }
       A.markFailed(this.sql, authority);
       return this.resultPage(false, "تأیید پرداخت ناموفق بود. اگر مبلغی کسر شده تا ۷۲ ساعت برمی‌گردد.");
+    } catch (e) {
+      return this.resultPage(false, "ارتباط با درگاه برقرار نشد. اگر مبلغی کسر شده با پشتیبانی تماس بگیرید.");
+    }
+  }
+
+  async payCallbackAqaye(transid, status) {
+    const pay = A.getPayment(this.sql, transid);
+    if (!pay) return this.resultPage(false, "تراکنش پیدا نشد.");
+    if (pay.status === "paid") return this.resultPage(true, "این پرداخت قبلاً ثبت شده و اشتراک شما فعال است.", pay.ref_id);
+    if (status !== "1") { A.markFailed(this.sql, transid); return this.resultPage(false, "پرداخت توسط شما لغو شد یا ناموفق بود."); }
+    const pin = A.kvGet(this.sql, "merchant_id", "");
+    try {
+      const r = await fetch("https://panel.aqayepardakht.ir/api/v2/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ pin, amount: Number(pay.amount), transid }),
+      });
+      const data = await r.json().catch(() => ({}));
+      const ok = data?.status === "success" && (String(data?.code) === "1" || String(data?.code) === "2");
+      if (ok) {
+        A.markPaid(this.sql, transid, transid);
+        const plan = A.getPlan(this.sql, pay.plan_id);
+        if (plan) A.grantPlan(this.sql, pay.account_id, { days: plan.days });
+        return this.resultPage(true, "پرداخت با موفقیت انجام شد و اشتراک پرو شما همین حالا فعال شد.", transid);
+      }
+      A.markFailed(this.sql, transid);
+      return this.resultPage(false, `تأیید پرداخت ناموفق بود: ${aqayeError(data?.code)}. اگر مبلغی کسر شده تا ۷۲ ساعت برمی‌گردد.`);
     } catch (e) {
       return this.resultPage(false, "ارتباط با درگاه برقرار نشد. اگر مبلغی کسر شده با پشتیبانی تماس بگیرید.");
     }

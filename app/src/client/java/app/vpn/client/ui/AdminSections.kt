@@ -471,6 +471,11 @@ private fun kindLabel(kind: String): String = when (kind) {
     "photo" -> "عکس پروفایل"; "invite" -> "دعوت دوستان"; else -> "بازدید"
 }
 
+private fun isAqayeGateway(g: String): Boolean {
+    val s = g.lowercase()
+    return s.contains("aqaye") || s.contains("aghaye") || s.contains("aghapardakht") || s.contains("aqayepardakht") || s.contains("آقای")
+}
+
 @Composable
 private fun KindChip(label: String, selected: Boolean, onClick: () -> Unit) {
     Box(
@@ -595,19 +600,29 @@ fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
         }
     }
 
+    val aqaye = isAqayeGateway(gateway)
     AdminSectionScaffold("درگاه پرداخت", onBack) {
         Text(
-            "کد پذیرندهٔ زرین‌پال (Merchant ID) را وارد کنید تا خرید آنلاین فعال شود. تا وقتی این کد خالی باشد، دکمهٔ خرید به کاربر پیام می‌دهد که درگاه آماده نیست.",
+            "نوع درگاهت را انتخاب کن و کد آن را وارد کن تا خرید آنلاین فعال شود. تا وقتی کد خالی باشد، دکمهٔ خرید به کاربر می‌گوید درگاه آماده نیست.",
             style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary,
         )
         AppCard {
-            AdminField("کد پذیرنده (Merchant ID)", merchantId, { merchantId = it })
+            Text("نوع درگاه", style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                KindChip("زرین‌پال", !aqaye) { gateway = "zarinpal" }
+                KindChip("آقای پرداخت", aqaye) { gateway = "aqayepardakht" }
+            }
+            Spacer(Modifier.height(10.dp))
+            AdminField(if (aqaye) "کد درگاه / PIN (آقای پرداخت)" else "کد پذیرنده Merchant ID (زرین‌پال)", merchantId, { merchantId = it })
+            Spacer(Modifier.height(6.dp))
+            Text(
+                if (aqaye) "همان «کد درگاه/pin» را از پنل آقای پرداخت وارد کن."
+                else "کد ۳۶ کاراکتری زرین‌پال را وارد کن.",
+                style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted,
+            )
             Spacer(Modifier.height(8.dp))
-            AdminField("درگاه", gateway, { gateway = it })
-            Spacer(Modifier.height(4.dp))
             AdminSwitchRow("حالت آزمایشی (Sandbox)", sandbox) { sandbox = it }
-            Spacer(Modifier.height(8.dp))
-            AdminField("آدرس صفحهٔ خرید (اختیاری)", buyUrl, { buyUrl = it })
             Spacer(Modifier.height(10.dp))
             AdminSaveButton("ذخیره", enabled = loaded && !saving) { save() }
         }
