@@ -40,6 +40,20 @@ function esc(s) {
 function faNum(n) {
   return String(n).replace(/\d/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[d]);
 }
+/** Extracts a readable Zarinpal error (v4 returns `errors` as an object or an array). */
+function zpError(data) {
+  const e = data && data.errors;
+  if (Array.isArray(e) && e.length) return `کد ${e[0].code}: ${e[0].message || ""}`;
+  if (e && typeof e === "object" && (e.code || e.message)) {
+    let m = `کد ${e.code}: ${e.message || ""}`;
+    if (Array.isArray(e.validations) && e.validations.length) {
+      m += " (" + e.validations.map((v) => Object.entries(v).map(([k, val]) => `${k}: ${val}`).join(" ")).join("؛ ") + ")";
+    }
+    return m;
+  }
+  if (data && data.data && data.data.message) return data.data.message;
+  return "ایجاد تراکنش ناموفق بود.";
+}
 
 const PAGE_CSS = `<style>
 *{box-sizing:border-box}
@@ -162,7 +176,7 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
-    if (path === "/") return json({ ok: true, service: "fairosvpn", build: "20261024-pbkdf100k" });
+    if (path === "/") return json({ ok: true, service: "fairosvpn", build: "20261024-zperr" });
     // The purchase website is served straight from the Worker.
     if (path === "/buy" || path === "/pay/callback") {
       const stub0 = env.HUB.get(env.HUB.idFromName("main"));
@@ -359,8 +373,7 @@ export class Hub {
     const data = await r.json().catch(() => ({}));
     const code = data?.data?.code;
     if (code !== 100 || !data?.data?.authority) {
-      const msg = Array.isArray(data?.errors) && data.errors[0]?.message ? data.errors[0].message : "ایجاد تراکنش ناموفق بود.";
-      throw new A.ApiError(502, `خطای درگاه پرداخت: ${msg}`);
+      throw new A.ApiError(502, `خطای درگاه پرداخت: ${zpError(data)}`);
     }
     const authority = data.data.authority;
     A.createPayment(this.sql, { authority, accountId: acc.id, planId: plan.id, amount: amountRial });
