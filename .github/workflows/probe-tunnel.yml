@@ -21,6 +21,7 @@ jobs:
       - name: Probe repeatedly
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           URL: ${{ github.event.inputs.url }}
         run: |
           : "${URL:=https://fairos-cf.fiaros705.workers.dev}"
