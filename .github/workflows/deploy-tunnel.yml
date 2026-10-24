@@ -1,9 +1,9 @@
 name: Deploy tunnel
 
-# Deploys the VLESS-over-WebSocket proxy Worker (tunnel/). Manual only, so it never
-# deploys by accident. Uses the same CLOUDFLARE_API_TOKEN secret as the backend.
-# Note: a general-purpose proxy on Workers is a gray area in Cloudflare's ToS, so you
-# may prefer to point CLOUDFLARE_API_TOKEN at a SEPARATE Cloudflare account for this.
+# Deploys the VLESS-over-WebSocket proxy Worker (tunnel/) to a SEPARATE Cloudflare account,
+# so a possible ToS action never touches the backend account. Manual only.
+# Needs a repo secret CLOUDFLARE_TUNNEL_API_TOKEN (from the separate account),
+# optionally CLOUDFLARE_TUNNEL_ACCOUNT_ID.
 
 on:
   workflow_dispatch:
@@ -31,13 +31,24 @@ jobs:
       - name: Deploy tunnel worker
         id: deploy
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
-          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_TUNNEL_ACCOUNT_ID }}
         run: |
           set -o pipefail
           npx --yes wrangler@4 deploy --config tunnel/wrangler.toml 2>&1 | tee deploy.log
+
+      - name: Report deployed URL
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          URL=$(grep -oiE "https://[a-z0-9.-]+\.workers\.dev" deploy.log | head -1)
+          {
+            echo "Tunnel deployed (run ${{ github.run_number }})."
+            echo
+            echo "URL: ${URL:-unknown}"
+          } > turl.md
+          gh issue create --title "Tunnel deployed #${{ github.run_number }}" --body-file turl.md || true
 
       - name: Report failure
         if: failure()
@@ -47,7 +58,7 @@ jobs:
           {
             echo "Tunnel deploy failed (run ${{ github.run_number }})."
             echo '```'
-            grep -iE "error|account|auth|code:|not found|unauthor|forbidden|socket|compat|✘|✓ |Uploaded|Deployed|workers.dev" deploy.log 2>/dev/null | head -50 || echo "(no deploy.log)"
+            grep -iE "error|account|auth|code:|not found|unauthor|forbidden|socket|compat|more than one|workers.dev|✘" deploy.log 2>/dev/null | head -50 || echo "(no deploy.log)"
             echo '```'
           } > treport.md
           gh issue create --title "Tunnel deploy failed #${{ github.run_number }}" --body-file treport.md || true
