@@ -5,7 +5,7 @@
 //  - no IP address, no visited sites, no traffic and no device contents are stored;
 //  - the admin sees account and billing data needed to run the service, nothing from a user's device.
 
-const PBKDF2_ITER = 120000;
+const PBKDF2_ITER = 100000; // Cloudflare Workers' WebCrypto rejects PBKDF2 iteration counts above 100000.
 const SESSION_DAYS = 60;
 const ADMIN_SESSION_DAYS = 7;
 const MAX_DEVICES = 2;

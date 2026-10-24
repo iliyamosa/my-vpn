@@ -40,7 +40,6 @@ import app.vpn.client.data.AccountManager
 import app.vpn.common.AccountException
 import app.vpn.ui.AppColors
 import app.vpn.ui.FairosLogo
-import app.vpn.ui.FairosWordmark
 import app.vpn.ui.GradientButton
 import app.vpn.ui.SpaceBackground
 import kotlinx.coroutines.launch
@@ -91,11 +90,9 @@ fun AuthScreen(activity: MainActivity) {
                 .padding(horizontal = 24.dp, vertical = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(Modifier.height(30.dp))
-            FairosLogo(size = 96.dp)
+            Spacer(Modifier.height(28.dp))
+            FairosLogo(size = 160.dp)
             Spacer(Modifier.height(14.dp))
-            FairosWordmark(height = 26.dp)
-            Spacer(Modifier.height(6.dp))
             Text(
                 "برای استفاده از برنامه، وارد شوید یا ثبت‌نام کنید",
                 style = MaterialTheme.typography.bodySmall,
