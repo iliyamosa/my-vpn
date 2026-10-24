@@ -85,6 +85,18 @@ async function readForm(request) {
     return {};
   }
 }
+/** Lowercase hex HMAC-SHA256 of `message` with `secret` (for webhook signature checks). */
+async function hmacHex(secret, message) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function timingSafeEqual(a, b) {
+  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
 
 const PAGE_CSS = `<style>
 *{box-sizing:border-box}
@@ -120,14 +132,15 @@ input:focus{border-color:var(--b2)}
 .addr{word-break:break-all;background:rgba(10,12,22,.7);border:1px dashed var(--b2);border-radius:12px;padding:12px;font-size:13px;direction:ltr;text-align:left;cursor:pointer;margin:8px 0}
 </style><link href="https://cdn.jsdelivr.net/npm/vazirmatn@33.0.3/Vazirmatn-font-face.css" rel="stylesheet">`;
 
-function buildBuyPage(origin, plans, bank, crypto) {
+function buildBuyPage(origin, plans, bank, crypto, bey) {
   const planCards = plans.map((p, i) => `
     <div class="plan${i === 0 ? " sel" : ""}" data-id="${esc(p.id)}" onclick="pick(this)">
       <span class="r"></span>
       <span class="nm"><b>${esc(p.title)}</b><small>${faNum(p.days)} روز</small></span>
       <span class="pr">${esc(p.price || (faNum(p.amountToman.toLocaleString("en-US")) + " تومان"))}</span>
     </div>`).join("");
-  const bankBtn = bank && bank.enabled ? `<button class="btn" id="go" onclick="pay()">پرداخت از درگاه بانکی</button>` : ``;
+  const beyBtn = bey && bey.enabled ? `<button class="btn" id="bgo" onclick="payBey()">پرداخت ارزی (کریپتو) 🔒</button>` : ``;
+  const bankBtn = bank && bank.enabled ? `<button class="btn" id="go" onclick="pay()" style="background:linear-gradient(90deg,#3a7bff,#5b46c9)">پرداخت ریالی (درگاه بانکی)</button>` : ``;
   const cryptoBox = crypto && crypto.enabled && crypto.address ? `
     <div class="cbox">
       <div class="ctitle">پرداخت با ارز دیجیتال${crypto.asset ? " (" + esc(crypto.asset) + ")" : ""}</div>
@@ -140,12 +153,13 @@ function buildBuyPage(origin, plans, bank, crypto) {
   let body;
   if (!plans.length) {
     body = `<p style="margin-top:20px">در حال حاضر پلنی برای خرید آنلاین تنظیم نشده است. لطفاً بعداً دوباره سر بزنید یا با پشتیبانی تماس بگیرید.</p>`;
-  } else if (!bankBtn && !cryptoBox) {
+  } else if (!bankBtn && !cryptoBox && !beyBtn) {
     body = `<div class="plans">${planCards}</div><p style="margin-top:16px">روش پرداختی هنوز توسط مدیر فعال نشده است.</p>`;
   } else {
     body = `<div class="plans">${planCards}</div>
        <label>نام کاربری یا ایمیل</label><input id="login" autocomplete="username" dir="ltr">
        <label>رمز عبور</label><input id="pass" type="password" autocomplete="current-password" dir="ltr">
+       ${beyBtn}
        ${bankBtn}
        ${cryptoBox}
        <div class="err" id="err"></div>`;
@@ -171,7 +185,18 @@ async function pay(){
     if(d.ok&&d.redirect){location.href=d.redirect;return;}
     err.textContent=d.error||"خطا در ایجاد پرداخت.";
   }catch(e){err.textContent="ارتباط با سرور برقرار نشد.";}
-  btn.disabled=false;btn.textContent="پرداخت از درگاه بانکی";
+  btn.disabled=false;btn.textContent="پرداخت ریالی (درگاه بانکی)";
+}
+async function payBey(){
+  const c=creds();if(!c)return;const err=document.getElementById("err");
+  const btn=document.getElementById("bgo");btn.disabled=true;btn.textContent="در حال انتقال به صفحهٔ پرداخت…";
+  try{
+    const r=await fetch("/pay/beyounger",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(c)});
+    const d=await r.json();
+    if(d.ok&&d.redirect){location.href=d.redirect;return;}
+    err.textContent=d.error||"خطا در ایجاد پرداخت ارزی.";
+  }catch(e){err.textContent="ارتباط با سرور برقرار نشد.";}
+  btn.disabled=false;btn.textContent="پرداخت ارزی (کریپتو) 🔒";
 }
 async function payCrypto(){
   const c=creds();if(!c)return;const err=document.getElementById("err");
@@ -237,7 +262,7 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
-    if (path === "/") return json({ ok: true, service: "fairosvpn", build: "20261024-crypto" });
+    if (path === "/") return json({ ok: true, service: "fairosvpn", build: "20261024-beyounger" });
     // The purchase website is served straight from the Worker.
     if (path === "/buy" || path === "/pay/callback") {
       const stub0 = env.HUB.get(env.HUB.idFromName("main"));
@@ -381,6 +406,9 @@ export class Hub {
         case "/buy": return this.buyPage(url.origin);
         case "/pay/start": return json(await this.payStart(await body(), url.origin));
         case "/pay/crypto": return json(await this.payCrypto(await body()));
+        case "/pay/beyounger": return json(await this.payBeyounger(await body(), url.origin));
+        case "/pay/beyounger-webhook": return this.beyWebhook(request);
+        case "/pay/beyounger-return": return this.beyReturn(url);
         case "/pay/callback": return this.payCallback(request, url);
 
         // ---- crypto orders (admin review)
@@ -408,7 +436,13 @@ export class Hub {
       if (typeof b.cryptoAsset === "string") A.kvSet(this.sql, "crypto_asset", b.cryptoAsset.trim().slice(0, 60));
       if (typeof b.cryptoAddress === "string") A.kvSet(this.sql, "crypto_address", b.cryptoAddress.trim().slice(0, 200));
       if (typeof b.cryptoNote === "string") A.kvSet(this.sql, "crypto_note", b.cryptoNote.trim().slice(0, 300));
+      if (typeof b.beyEnabled === "boolean") A.kvSet(this.sql, "bey_enabled", b.beyEnabled ? "1" : "0");
+      // API key and webhook secret are write-only: a blank value keeps the existing one.
+      if (typeof b.beyApiKey === "string" && b.beyApiKey.trim()) A.kvSet(this.sql, "bey_api_key", b.beyApiKey.trim().slice(0, 2000));
+      if (typeof b.beyWebhookId === "string") A.kvSet(this.sql, "bey_webhook_id", b.beyWebhookId.trim().slice(0, 120));
+      if (typeof b.beyWebhookSecret === "string" && b.beyWebhookSecret.trim()) A.kvSet(this.sql, "bey_webhook_secret", b.beyWebhookSecret.trim().slice(0, 400));
     }
+    const beyKey = A.kvGet(this.sql, "bey_api_key", "");
     return {
       merchantId: A.kvGet(this.sql, "merchant_id", ""),
       gateway: A.kvGet(this.sql, "gateway", "zarinpal"),
@@ -418,6 +452,11 @@ export class Hub {
       cryptoAsset: A.kvGet(this.sql, "crypto_asset", ""),
       cryptoAddress: A.kvGet(this.sql, "crypto_address", ""),
       cryptoNote: A.kvGet(this.sql, "crypto_note", ""),
+      beyEnabled: A.kvGet(this.sql, "bey_enabled", "0") === "1",
+      // Never send the full API key back; just whether one is set.
+      beyApiKeySet: !!beyKey,
+      beyWebhookId: A.kvGet(this.sql, "bey_webhook_id", ""),
+      beyWebhookSecretSet: !!A.kvGet(this.sql, "bey_webhook_secret", ""),
     };
   }
 
@@ -565,7 +604,8 @@ export class Hub {
       address: A.kvGet(this.sql, "crypto_address", ""),
       note: A.kvGet(this.sql, "crypto_note", ""),
     };
-    const html = buildBuyPage(origin, plans, bank, crypto);
+    const bey = { enabled: A.kvGet(this.sql, "bey_enabled", "0") === "1" && !!A.kvGet(this.sql, "bey_api_key", "") && !!A.kvGet(this.sql, "bey_webhook_id", "") };
+    const html = buildBuyPage(origin, plans, bank, crypto, bey);
     return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", ...CORS } });
   }
 
@@ -573,6 +613,96 @@ export class Hub {
   async payCrypto(body) {
     const acc = await A.findForPurchase(this.sql, body); // throws 401 on bad credentials
     return A.createCryptoOrder(this.sql, acc, body);
+  }
+
+  // ---------- Beyounger hosted crypto checkout (automatic, via webhook) ----------
+
+  /** Verifies the buyer, creates a Beyounger acquiring order and returns the hosted checkout URL. */
+  async payBeyounger(body, origin) {
+    const acc = await A.findForPurchase(this.sql, body); // throws 401 on bad credentials
+    const plan = A.getPlan(this.sql, body.planId);
+    if (!plan || !plan.enabled) throw new A.ApiError(404, "پلن انتخابی پیدا نشد.");
+    const apiKey = A.kvGet(this.sql, "bey_api_key", "");
+    const webhookId = A.kvGet(this.sql, "bey_webhook_id", "");
+    if (!apiKey || !webhookId) throw new A.ApiError(503, "پرداخت ارزی (Beyounger) هنوز توسط مدیر کامل تنظیم نشده است.");
+    const amountUsd = Number(plan.amount_usd || 0);
+    if (!(amountUsd > 0)) throw new A.ApiError(400, "قیمت دلاری این پلن تنظیم نشده است. با پشتیبانی تماس بگیرید.");
+    const outTradeNo = "fv_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    const r = await fetch("https://app.beyounger.com/payment/acquiring/orders", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        out_trade_no: outTradeNo,
+        order_currency: "USD",
+        order_amount: amountUsd,
+        expire_seconds: 1800,
+        underpay_tolerance: 0,
+        notify_webhook_id: webhookId,
+        redirect_url: `${origin}/pay/beyounger-return?ref=${outTradeNo}`,
+        remark: `${plan.title} — FAIROS VPN`,
+      }),
+    });
+    const data = await r.json().catch(() => ({}));
+    const order = data && data.data && data.data.order;
+    if (!order || !order.checkout_url || !order.order_id) {
+      const msg = (data && (data.message || data.msg || (data.error && (data.error.message || data.error)))) || "ایجاد پرداخت ارزی ناموفق بود.";
+      throw new A.ApiError(502, `خطای درگاه ارزی: ${msg}`);
+    }
+    A.createPayment(this.sql, { authority: outTradeNo, accountId: acc.id, planId: plan.id, amount: amountUsd, providerRef: String(order.order_id) });
+    return { ok: true, redirect: order.checkout_url };
+  }
+
+  /** Beyounger webhook: marks the order paid and activates pro when status=completed. */
+  async beyWebhook(request) {
+    const raw = await request.text().catch(() => "");
+    const secret = A.kvGet(this.sql, "bey_webhook_secret", "");
+    if (secret) {
+      const sig = request.headers.get("X-Beyounger-Signature") || request.headers.get("x-beyounger-signature") || "";
+      const expected = await hmacHex(secret, raw);
+      if (!sig || !timingSafeEqual(sig.trim().toLowerCase(), expected)) {
+        return json({ error: "bad signature" }, 401);
+      }
+    }
+    let evt = {};
+    try { evt = JSON.parse(raw); } catch (e) { return json({ error: "bad json" }, 400); }
+    const d = evt.data || {};
+    const status = String(d.status || "");
+    const outTradeNo = String(d.out_trade_no || "");
+    const orderId = String(d.order_id || d.business_id || "");
+    if (status === "completed") {
+      const pay = (outTradeNo && A.getPayment(this.sql, outTradeNo)) || (orderId && A.getPaymentByProviderRef(this.sql, orderId));
+      if (pay && pay.status !== "paid") {
+        A.markPaid(this.sql, pay.authority, orderId || outTradeNo);
+        const plan = A.getPlan(this.sql, pay.plan_id);
+        if (plan) A.grantPlan(this.sql, pay.account_id, { days: plan.days });
+      }
+    }
+    return json({ ok: true });
+  }
+
+  /** The page the buyer returns to from Beyounger; double-checks status so pro activates even if the webhook is late. */
+  async beyReturn(url) {
+    const ref = url.searchParams.get("ref") || "";
+    const pay = ref ? A.getPayment(this.sql, ref) : null;
+    if (!pay) return this.resultPage(false, "تراکنش پیدا نشد.");
+    if (pay.status === "paid") return this.resultPage(true, "پرداخت شما کامل شد و اشتراک پرو فعال است.", pay.ref_id);
+    const apiKey = A.kvGet(this.sql, "bey_api_key", "");
+    try {
+      const r = await fetch(`https://app.beyounger.com/payment/acquiring/orders/${encodeURIComponent(pay.provider_ref)}`, {
+        headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+      });
+      const data = await r.json().catch(() => ({}));
+      const order = (data && data.data && (data.data.order || data.data)) || {};
+      if (String(order.status) === "completed") {
+        A.markPaid(this.sql, pay.authority, pay.provider_ref);
+        const plan = A.getPlan(this.sql, pay.plan_id);
+        if (plan) A.grantPlan(this.sql, pay.account_id, { days: plan.days });
+        return this.resultPage(true, "پرداخت شما کامل شد و اشتراک پرو همین حالا فعال شد.", pay.provider_ref);
+      }
+    } catch (e) {
+      // fall through to the pending message
+    }
+    return this.resultPage(true, "پرداخت شما ثبت شد. اگر کامل شده باشد، اشتراک تا دقایقی دیگر فعال می‌شود؛ بعد در برنامه «به‌روزرسانی» را بزنید.");
   }
 
   // ---------- live settings

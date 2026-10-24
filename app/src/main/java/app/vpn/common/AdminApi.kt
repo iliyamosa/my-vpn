@@ -39,6 +39,7 @@ data class AdminPlan(
     val price: String,
     val pointCost: Int,
     val amountToman: Long,
+    val amountUsd: Double,
     val enabled: Boolean,
     val sort: Int,
 )
@@ -72,6 +73,13 @@ data class PaymentSettings(
     val cryptoAsset: String = "",
     val cryptoAddress: String = "",
     val cryptoNote: String = "",
+    val beyEnabled: Boolean = false,
+    val beyApiKeySet: Boolean = false,
+    val beyWebhookId: String = "",
+    val beyWebhookSecretSet: Boolean = false,
+    // write-only (typed by admin; blank keeps the existing value)
+    val beyApiKey: String = "",
+    val beyWebhookSecret: String = "",
 )
 
 data class CryptoOrder(
@@ -216,14 +224,14 @@ object AdminApi {
         return (0 until (arr?.length() ?: 0)).map { i ->
             val p = arr!!.getJSONObject(i)
             AdminPlan(p.optString("id"), p.optString("title"), p.optInt("days"), p.optString("price"),
-                p.optInt("pointCost"), p.optLong("amountToman"), p.optBoolean("enabled"), p.optInt("sort"))
+                p.optInt("pointCost"), p.optLong("amountToman"), p.optDouble("amountUsd", 0.0), p.optBoolean("enabled"), p.optInt("sort"))
         }
     }
 
     fun savePlan(base: String, token: String, p: AdminPlan): String =
         post(base, "/admin/plan", token, JSONObject()
             .put("id", p.id).put("title", p.title).put("days", p.days).put("price", p.price)
-            .put("pointCost", p.pointCost).put("amountToman", p.amountToman).put("enabled", p.enabled).put("sort", p.sort)).optString("id")
+            .put("pointCost", p.pointCost).put("amountToman", p.amountToman).put("amountUsd", p.amountUsd).put("enabled", p.enabled).put("sort", p.sort)).optString("id")
 
     fun deletePlan(base: String, token: String, id: String) = post(base, "/admin/plan/delete", token, JSONObject().put("id", id))
 
@@ -266,6 +274,7 @@ object AdminApi {
     private fun parseSettings(o: JSONObject) = PaymentSettings(
         o.optString("merchantId"), o.optString("gateway").ifBlank { "zarinpal" }, o.optBoolean("sandbox"), o.optString("buyUrl"),
         o.optBoolean("cryptoEnabled"), o.optString("cryptoAsset"), o.optString("cryptoAddress"), o.optString("cryptoNote"),
+        o.optBoolean("beyEnabled"), o.optBoolean("beyApiKeySet"), o.optString("beyWebhookId"), o.optBoolean("beyWebhookSecretSet"),
     )
 
     fun getSettings(base: String, token: String): PaymentSettings = parseSettings(post(base, "/admin/settings", token, JSONObject()))
@@ -273,7 +282,8 @@ object AdminApi {
     fun saveSettings(base: String, token: String, s: PaymentSettings): PaymentSettings {
         val o = post(base, "/admin/settings", token, JSONObject()
             .put("merchantId", s.merchantId).put("gateway", s.gateway).put("sandbox", s.sandbox).put("buyUrl", s.buyUrl)
-            .put("cryptoEnabled", s.cryptoEnabled).put("cryptoAsset", s.cryptoAsset).put("cryptoAddress", s.cryptoAddress).put("cryptoNote", s.cryptoNote))
+            .put("cryptoEnabled", s.cryptoEnabled).put("cryptoAsset", s.cryptoAsset).put("cryptoAddress", s.cryptoAddress).put("cryptoNote", s.cryptoNote)
+            .put("beyEnabled", s.beyEnabled).put("beyApiKey", s.beyApiKey).put("beyWebhookId", s.beyWebhookId).put("beyWebhookSecret", s.beyWebhookSecret))
         return parseSettings(o)
     }
 

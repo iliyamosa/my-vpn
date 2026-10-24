@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
 import app.vpn.client.MainActivity
 import app.vpn.common.AdminAccount
@@ -283,10 +284,11 @@ fun AdminPlans(activity: MainActivity, onBack: () -> Unit) {
     var daysText by remember { mutableStateOf("30") }
     var price by remember { mutableStateOf("") }
     var toman by remember { mutableStateOf("") }
+    var usd by remember { mutableStateOf("") }
     var pointCost by remember { mutableStateOf("0") }
     var enabled by remember { mutableStateOf(true) }
 
-    fun clearEditor() { editId = ""; title = ""; daysText = "30"; price = ""; toman = ""; pointCost = "0"; enabled = true }
+    fun clearEditor() { editId = ""; title = ""; daysText = "30"; price = ""; toman = ""; usd = ""; pointCost = "0"; enabled = true }
     fun load() {
         scope.launch {
             try { items = withContext(Dispatchers.IO) { AdminApi.listPlans(base, token) }; msg = null }
@@ -303,7 +305,7 @@ fun AdminPlans(activity: MainActivity, onBack: () -> Unit) {
                 withContext(Dispatchers.IO) {
                     AdminApi.savePlan(base, token, AdminPlan(
                         editId, title.trim(), daysText.toIntOrNull() ?: 0, price.trim(),
-                        pointCost.toIntOrNull() ?: 0, toman.toLongOrNull() ?: 0, enabled, 0,
+                        pointCost.toIntOrNull() ?: 0, toman.toLongOrNull() ?: 0, usd.toDoubleOrNull() ?: 0.0, enabled, 0,
                     ))
                 }
                 msg = "ذخیره شد."; error = false; clearEditor(); load()
@@ -329,7 +331,9 @@ fun AdminPlans(activity: MainActivity, onBack: () -> Unit) {
             Spacer(Modifier.height(8.dp))
             AdminField("مدت (روز)", daysText, { daysText = it }, number = true)
             Spacer(Modifier.height(8.dp))
-            AdminField("مبلغ (تومان)", toman, { toman = it }, number = true)
+            AdminField("مبلغ ریالی (تومان) — برای درگاه بانکی", toman, { toman = it }, number = true)
+            Spacer(Modifier.height(8.dp))
+            AdminField("قیمت دلاری (USD) — برای پرداخت ارزی/Beyounger، مثلاً 2.5", usd, { usd = it })
             Spacer(Modifier.height(8.dp))
             AdminField("برچسب قیمت (اختیاری، مثلاً ۴۹٬۰۰۰ تومان)", price, { price = it })
             Spacer(Modifier.height(8.dp))
@@ -346,7 +350,9 @@ fun AdminPlans(activity: MainActivity, onBack: () -> Unit) {
         items.forEach { p ->
             AppCard(modifier = Modifier.clickable {
                 editId = p.id; title = p.title; daysText = p.days.toString(); price = p.price
-                toman = if (p.amountToman > 0) p.amountToman.toString() else ""; pointCost = p.pointCost.toString(); enabled = p.enabled
+                toman = if (p.amountToman > 0) p.amountToman.toString() else ""
+                usd = if (p.amountUsd > 0) (if (p.amountUsd % 1.0 == 0.0) p.amountUsd.toInt().toString() else p.amountUsd.toString()) else ""
+                pointCost = p.pointCost.toString(); enabled = p.enabled
             }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -582,14 +588,23 @@ fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
     var cryptoAsset by remember { mutableStateOf("") }
     var cryptoAddress by remember { mutableStateOf("") }
     var cryptoNote by remember { mutableStateOf("") }
+    var beyEnabled by remember { mutableStateOf(false) }
+    var beyApiKeySet by remember { mutableStateOf(false) }
+    var beyApiKey by remember { mutableStateOf("") }
+    var beyWebhookId by remember { mutableStateOf("") }
+    var beyWebhookSecretSet by remember { mutableStateOf(false) }
+    var beyWebhookSecret by remember { mutableStateOf("") }
     var msg by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var loaded by remember { mutableStateOf(false) }
+    val webhookUrl = "$base/pay/beyounger-webhook"
 
     fun apply(s: PaymentSettings) {
         merchantId = s.merchantId; gateway = s.gateway; sandbox = s.sandbox; buyUrl = s.buyUrl
         cryptoEnabled = s.cryptoEnabled; cryptoAsset = s.cryptoAsset; cryptoAddress = s.cryptoAddress; cryptoNote = s.cryptoNote
+        beyEnabled = s.beyEnabled; beyApiKeySet = s.beyApiKeySet; beyWebhookId = s.beyWebhookId; beyWebhookSecretSet = s.beyWebhookSecretSet
+        beyApiKey = ""; beyWebhookSecret = ""
     }
 
     LaunchedEffect(Unit) {
@@ -606,6 +621,8 @@ fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
                     AdminApi.saveSettings(base, token, PaymentSettings(
                         merchantId.trim(), gateway.trim(), sandbox, buyUrl.trim(),
                         cryptoEnabled, cryptoAsset.trim(), cryptoAddress.trim(), cryptoNote.trim(),
+                        beyEnabled, beyApiKeySet, beyWebhookId.trim(), beyWebhookSecretSet,
+                        beyApiKey.trim(), beyWebhookSecret.trim(),
                     ))
                 }
                 apply(s)
@@ -616,9 +633,30 @@ fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
 
     val aqaye = isAqayeGateway(gateway)
     AdminSectionScaffold("درگاه پرداخت", onBack) {
-        // ---- crypto (recommended for privacy) ----
+        // ---- Beyounger hosted crypto checkout (automatic) ----
         AppCard {
-            Text("پرداخت با ارز دیجیتال", style = MaterialTheme.typography.titleSmall, color = AppColors.Connected)
+            Text("پرداخت ارزی خودکار (Beyounger)", style = MaterialTheme.typography.titleSmall, color = AppColors.Connected)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "چک‌اوت آمادهٔ کریپتو (USDT، Monero و…) مثل Jump. بعد از پرداخت، اشتراک خودکار فعال می‌شود. برای هر پلن «قیمت دلاری» را در بخش پلن‌ها بگذار.",
+                style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary,
+            )
+            Spacer(Modifier.height(10.dp))
+            AdminSwitchRow("پرداخت Beyounger فعال باشد", beyEnabled) { beyEnabled = it }
+            Spacer(Modifier.height(8.dp))
+            AdminField(if (beyApiKeySet) "API Key (ذخیره شده ✓ — برای تغییر دوباره وارد کن)" else "API Key (از پنل Beyounger)", beyApiKey, { beyApiKey = it }, singleLine = false)
+            Spacer(Modifier.height(8.dp))
+            AdminField("Webhook ID", beyWebhookId, { beyWebhookId = it })
+            Spacer(Modifier.height(8.dp))
+            AdminField(if (beyWebhookSecretSet) "Webhook Secret (ذخیره شده ✓)" else "Webhook Secret", beyWebhookSecret, { beyWebhookSecret = it })
+            Spacer(Modifier.height(8.dp))
+            Text("آدرس وبهوک (در پنل Beyounger این را وارد کن):", style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
+            Text(webhookUrl, style = MaterialTheme.typography.bodySmall.copy(textDirection = TextDirection.Ltr), color = AppColors.Primary)
+        }
+
+        // ---- manual crypto (recommended for privacy) ----
+        AppCard {
+            Text("پرداخت ارزی دستی", style = MaterialTheme.typography.titleSmall, color = AppColors.Connected)
             Spacer(Modifier.height(4.dp))
             Text(
                 "این روش از بانک و شاپرک عبور نمی‌کند، پس در سیستم بانکی ایران ردیابی نمی‌شود. کاربر مبلغ را به آدرس کیف‌پول می‌فرستد و کد تراکنش را ثبت می‌کند؛ بعد از تأیید تو، اشتراکش فعال می‌شود. برای حریم خصوصی بیشتر، Monero (XMR) بهتر از USDT است.",

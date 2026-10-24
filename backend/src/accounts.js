@@ -116,8 +116,11 @@ export function initAccountTables(sql) {
   sql.exec(`CREATE TABLE IF NOT EXISTS crypto_orders (
     id TEXT PRIMARY KEY, account_id TEXT, plan_id TEXT, asset TEXT, txid TEXT,
     status TEXT DEFAULT 'pending', created INTEGER, decided_at INTEGER)`);
-  // Older plans tables may lack the numeric amount column; add it once.
+  // Older plans tables may lack these columns; add them once.
   addColumn(sql, "plans", "amount_toman", "INTEGER DEFAULT 0");
+  addColumn(sql, "plans", "amount_usd", "REAL DEFAULT 0");
+  // Beyounger (and other providers) key the payment by our out_trade_no; keep the provider's id too.
+  addColumn(sql, "payments", "provider_ref", "TEXT DEFAULT ''");
 }
 
 /** Adds a column if it isn't already there (SQLite has no IF NOT EXISTS for columns). */
@@ -375,20 +378,20 @@ export function getPlan(sql, id) {
   return one(sql, "SELECT * FROM plans WHERE id = ?", String(id));
 }
 export function listPlans(sql) {
-  return all(sql, "SELECT id, title, days, price, point_cost, amount_toman FROM plans WHERE enabled = 1 ORDER BY sort DESC, days ASC")
-    .map((p) => ({ id: p.id, title: p.title, days: Number(p.days || 0), price: p.price || "", pointCost: Number(p.point_cost || 0), amountToman: Number(p.amount_toman || 0) }));
+  return all(sql, "SELECT id, title, days, price, point_cost, amount_toman, amount_usd FROM plans WHERE enabled = 1 ORDER BY sort DESC, days ASC")
+    .map((p) => ({ id: p.id, title: p.title, days: Number(p.days || 0), price: p.price || "", pointCost: Number(p.point_cost || 0), amountToman: Number(p.amount_toman || 0), amountUsd: Number(p.amount_usd || 0) }));
 }
 export function adminListPlans(sql) {
   return all(sql, "SELECT * FROM plans ORDER BY sort DESC, days ASC")
-    .map((p) => ({ id: p.id, title: p.title, days: Number(p.days || 0), price: p.price || "", pointCost: Number(p.point_cost || 0), amountToman: Number(p.amount_toman || 0), enabled: !!p.enabled, sort: Number(p.sort || 0) }));
+    .map((p) => ({ id: p.id, title: p.title, days: Number(p.days || 0), price: p.price || "", pointCost: Number(p.point_cost || 0), amountToman: Number(p.amount_toman || 0), amountUsd: Number(p.amount_usd || 0), enabled: !!p.enabled, sort: Number(p.sort || 0) }));
 }
 export function adminSavePlan(sql, body) {
   const id = String(body.id || "").trim() || newId();
   sql.exec(
-    `INSERT INTO plans (id, title, days, price, point_cost, amount_toman, enabled, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET title=excluded.title, days=excluded.days, price=excluded.price, point_cost=excluded.point_cost, amount_toman=excluded.amount_toman, enabled=excluded.enabled, sort=excluded.sort`,
+    `INSERT INTO plans (id, title, days, price, point_cost, amount_toman, amount_usd, enabled, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET title=excluded.title, days=excluded.days, price=excluded.price, point_cost=excluded.point_cost, amount_toman=excluded.amount_toman, amount_usd=excluded.amount_usd, enabled=excluded.enabled, sort=excluded.sort`,
     id, String(body.title || "").slice(0, 80), Math.max(0, Number(body.days || 0)), String(body.price || "").slice(0, 40),
-    Math.max(0, Number(body.pointCost || 0)), Math.max(0, Math.trunc(Number(body.amountToman || 0))), body.enabled === false ? 0 : 1, Number(body.sort || 0),
+    Math.max(0, Number(body.pointCost || 0)), Math.max(0, Math.trunc(Number(body.amountToman || 0))), Math.max(0, Number(body.amountUsd || 0)), body.enabled === false ? 0 : 1, Number(body.sort || 0),
   );
   return { ok: true, id };
 }
@@ -431,8 +434,11 @@ export function adminDeleteProServer(sql, id) {
 // ---------------------------------------------------------------- payments
 
 export function createPayment(sql, p) {
-  sql.exec("INSERT INTO payments (authority, account_id, plan_id, amount, status, created) VALUES (?, ?, ?, ?, 'pending', ?)",
-    p.authority, p.accountId, p.planId, Math.trunc(p.amount), Date.now());
+  sql.exec("INSERT INTO payments (authority, account_id, plan_id, amount, status, created, provider_ref) VALUES (?, ?, ?, ?, 'pending', ?, ?)",
+    p.authority, p.accountId, p.planId, Number(p.amount) || 0, Date.now(), String(p.providerRef || ""));
+}
+export function getPaymentByProviderRef(sql, ref) {
+  return one(sql, "SELECT * FROM payments WHERE provider_ref = ?", String(ref));
 }
 export function getPayment(sql, authority) {
   return one(sql, "SELECT * FROM payments WHERE authority = ?", String(authority));
