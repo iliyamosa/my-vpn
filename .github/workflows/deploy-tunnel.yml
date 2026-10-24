@@ -43,13 +43,35 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           URL=$(grep -oiE "https://[a-z0-9.-]+\.workers\.dev" deploy.log | head -1)
+          URL=${URL:-https://fairos-tunnel.fiaros705.workers.dev}
+          # Give the new version a moment to propagate, then probe it from the runner
+          # (the runner can reach workers.dev; the dev environment cannot).
+          sleep 8
+          probe() {
+            local path="$1"
+            local code body
+            code=$(curl -sS -m 25 -o body.txt -w "%{http_code}" "${URL}${path}?cb=${{ github.run_number }}${RANDOM}" 2>curlerr.txt || true)
+            echo "GET ${path} -> HTTP ${code:-ERR}"
+            echo "--- body (first 400 chars) ---"
+            head -c 400 body.txt 2>/dev/null || true
+            echo
+            if [ -s curlerr.txt ]; then echo "--- curl stderr ---"; head -c 200 curlerr.txt; echo; fi
+          }
           {
             echo "Tunnel deployed (run ${{ github.run_number }})."
             echo
-            echo "URL: ${URL:-unknown}"
+            echo "URL: ${URL}"
             echo
+            echo '### wrangler'
             echo '```'
             grep -iE "version id|uploaded|total upload|deployed|current version|worker startup|no changes|triggers" deploy.log 2>/dev/null | head -20 || true
+            echo '```'
+            echo
+            echo '### live probe (from GitHub runner)'
+            echo '```'
+            probe "/"
+            echo
+            probe "/health"
             echo '```'
           } > turl.md
           gh issue create --title "Tunnel deployed #${{ github.run_number }}" --body-file turl.md || true
