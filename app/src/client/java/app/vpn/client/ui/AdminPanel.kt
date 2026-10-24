@@ -87,8 +87,8 @@ private fun AdminHome(activity: MainActivity, onExit: () -> Unit, open: (AdminSe
                 AdminMenuRow(R.drawable.ic_crown, "پلن‌های اشتراک", "قیمت، مدت و هزینهٔ امتیازی") { open(AdminSection.PLANS) }
                 AdminMenuRow(R.drawable.ic_gift, "ماموریت‌ها", "تعریف ماموریت و امتیاز") { open(AdminSection.MISSIONS) }
                 AdminMenuRow(R.drawable.ic_bell, "اعلان‌ها", "ارسال پیام به کاربران") { open(AdminSection.NOTICES) }
-                AdminMenuRow(R.drawable.ic_wallet, "درگاه پرداخت", "ارز دیجیتال، زرین‌پال، آقای پرداخت") { open(AdminSection.PAYMENT) }
-                AdminMenuRow(R.drawable.ic_gift, "سفارش‌های ارز دیجیتال", "تأیید پرداخت‌های ارزی کاربران") { open(AdminSection.CRYPTO_ORDERS) }
+                AdminMenuRow(R.drawable.ic_wallet, "روش‌های پرداخت", "کریپتو (TON و…) و کارت‌به‌کارت") { open(AdminSection.PAYMENT) }
+                AdminMenuRow(R.drawable.ic_gift, "تأیید پرداخت‌ها", "تأیید واریزی‌های کریپتو و کارت کاربران") { open(AdminSection.CRYPTO_ORDERS) }
                 AdminMenuRow(R.drawable.ic_tune, "تنظیمات زنده", "سرور رایگان، پشتیبانی، به‌روزرسانی", last = true) { open(AdminSection.CONFIG) }
             }
             AppCard(modifier = Modifier.clickable { onExit() }) {

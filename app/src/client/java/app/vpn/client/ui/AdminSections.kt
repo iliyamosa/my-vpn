@@ -30,7 +30,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
 import app.vpn.client.MainActivity
 import app.vpn.common.AdminAccount
@@ -478,11 +477,6 @@ private fun kindLabel(kind: String): String = when (kind) {
     "photo" -> "عکس پروفایل"; "invite" -> "دعوت دوستان"; else -> "بازدید"
 }
 
-private fun isAqayeGateway(g: String): Boolean {
-    val s = g.lowercase()
-    return s.contains("aqaye") || s.contains("aghaye") || s.contains("aghapardakht") || s.contains("aqayepardakht") || s.contains("آقای")
-}
-
 @Composable
 private fun KindChip(label: String, selected: Boolean, onClick: () -> Unit) {
     Box(
@@ -580,31 +574,25 @@ fun AdminNotices(activity: MainActivity, onBack: () -> Unit) {
 fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val base = adminBase(); val token = adminToken(activity)
-    var merchantId by remember { mutableStateOf("") }
-    var gateway by remember { mutableStateOf("zarinpal") }
-    var sandbox by remember { mutableStateOf(false) }
-    var buyUrl by remember { mutableStateOf("") }
     var cryptoEnabled by remember { mutableStateOf(false) }
-    var cryptoAsset by remember { mutableStateOf("") }
-    var cryptoAddress by remember { mutableStateOf("") }
+    var cryptoAddresses by remember { mutableStateOf("") }
     var cryptoNote by remember { mutableStateOf("") }
-    var beyEnabled by remember { mutableStateOf(false) }
-    var beyApiKeySet by remember { mutableStateOf(false) }
-    var beyApiKey by remember { mutableStateOf("") }
-    var beyWebhookId by remember { mutableStateOf("") }
-    var beyWebhookSecretSet by remember { mutableStateOf(false) }
-    var beyWebhookSecret by remember { mutableStateOf("") }
+    var cardEnabled by remember { mutableStateOf(false) }
+    var cardNumber by remember { mutableStateOf("") }
+    var cardHolder by remember { mutableStateOf("") }
+    var cardNote by remember { mutableStateOf("") }
     var msg by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var loaded by remember { mutableStateOf(false) }
-    val webhookUrl = "$base/pay/beyounger-webhook"
 
     fun apply(s: PaymentSettings) {
-        merchantId = s.merchantId; gateway = s.gateway; sandbox = s.sandbox; buyUrl = s.buyUrl
-        cryptoEnabled = s.cryptoEnabled; cryptoAsset = s.cryptoAsset; cryptoAddress = s.cryptoAddress; cryptoNote = s.cryptoNote
-        beyEnabled = s.beyEnabled; beyApiKeySet = s.beyApiKeySet; beyWebhookId = s.beyWebhookId; beyWebhookSecretSet = s.beyWebhookSecretSet
-        beyApiKey = ""; beyWebhookSecret = ""
+        cryptoEnabled = s.cryptoEnabled
+        cryptoAddresses = s.cryptoAddresses.ifBlank {
+            if (s.cryptoAddress.isNotBlank()) (if (s.cryptoAsset.isNotBlank()) "${s.cryptoAsset} = ${s.cryptoAddress}" else s.cryptoAddress) else ""
+        }
+        cryptoNote = s.cryptoNote
+        cardEnabled = s.cardEnabled; cardNumber = s.cardNumber; cardHolder = s.cardHolder; cardNote = s.cardNote
     }
 
     LaunchedEffect(Unit) {
@@ -619,10 +607,9 @@ fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
             try {
                 val s = withContext(Dispatchers.IO) {
                     AdminApi.saveSettings(base, token, PaymentSettings(
-                        merchantId.trim(), gateway.trim(), sandbox, buyUrl.trim(),
-                        cryptoEnabled, cryptoAsset.trim(), cryptoAddress.trim(), cryptoNote.trim(),
-                        beyEnabled, beyApiKeySet, beyWebhookId.trim(), beyWebhookSecretSet,
-                        beyApiKey.trim(), beyWebhookSecret.trim(),
+                        merchantId = "", gateway = "", sandbox = false, buyUrl = "",
+                        cryptoEnabled = cryptoEnabled, cryptoAddresses = cryptoAddresses, cryptoNote = cryptoNote.trim(),
+                        cardEnabled = cardEnabled, cardNumber = cardNumber.trim(), cardHolder = cardHolder.trim(), cardNote = cardNote.trim(),
                     ))
                 }
                 apply(s)
@@ -631,72 +618,44 @@ fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
         }
     }
 
-    val aqaye = isAqayeGateway(gateway)
-    AdminSectionScaffold("درگاه پرداخت", onBack) {
-        // ---- Beyounger hosted crypto checkout (automatic) ----
+    AdminSectionScaffold("روش‌های پرداخت", onBack) {
+        // ---- crypto (off-bank) ----
         AppCard {
-            Text("پرداخت ارزی خودکار (Beyounger)", style = MaterialTheme.typography.titleSmall, color = AppColors.Connected)
+            Text("پرداخت ارزی (کریپتو)", style = MaterialTheme.typography.titleSmall, color = AppColors.Connected)
             Spacer(Modifier.height(4.dp))
             Text(
-                "چک‌اوت آمادهٔ کریپتو (USDT، Monero و…) مثل Jump. بعد از پرداخت، اشتراک خودکار فعال می‌شود. برای هر پلن «قیمت دلاری» را در بخش پلن‌ها بگذار.",
+                "کاربر مبلغ را به یکی از آدرس‌های زیر می‌فرستد و کد تراکنش را ثبت می‌کند؛ بعد از تأیید تو فعال می‌شود. از بانک و شاپرک عبور نمی‌کند، پس ردیابی نمی‌شود.",
                 style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary,
             )
             Spacer(Modifier.height(10.dp))
-            AdminSwitchRow("پرداخت Beyounger فعال باشد", beyEnabled) { beyEnabled = it }
+            AdminSwitchRow("فعال باشد", cryptoEnabled) { cryptoEnabled = it }
             Spacer(Modifier.height(8.dp))
-            AdminField(if (beyApiKeySet) "API Key (ذخیره شده ✓ — برای تغییر دوباره وارد کن)" else "API Key (از پنل Beyounger)", beyApiKey, { beyApiKey = it }, singleLine = false)
-            Spacer(Modifier.height(8.dp))
-            AdminField("Webhook ID", beyWebhookId, { beyWebhookId = it })
-            Spacer(Modifier.height(8.dp))
-            AdminField(if (beyWebhookSecretSet) "Webhook Secret (ذخیره شده ✓)" else "Webhook Secret", beyWebhookSecret, { beyWebhookSecret = it })
-            Spacer(Modifier.height(8.dp))
-            Text("آدرس وبهوک (در پنل Beyounger این را وارد کن):", style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
-            Text(webhookUrl, style = MaterialTheme.typography.bodySmall.copy(textDirection = TextDirection.Ltr), color = AppColors.Primary)
-        }
-
-        // ---- manual crypto (recommended for privacy) ----
-        AppCard {
-            Text("پرداخت ارزی دستی", style = MaterialTheme.typography.titleSmall, color = AppColors.Connected)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "این روش از بانک و شاپرک عبور نمی‌کند، پس در سیستم بانکی ایران ردیابی نمی‌شود. کاربر مبلغ را به آدرس کیف‌پول می‌فرستد و کد تراکنش را ثبت می‌کند؛ بعد از تأیید تو، اشتراکش فعال می‌شود. برای حریم خصوصی بیشتر، Monero (XMR) بهتر از USDT است.",
-                style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary,
-            )
-            Spacer(Modifier.height(10.dp))
-            AdminSwitchRow("پرداخت ارز دیجیتال فعال باشد", cryptoEnabled) { cryptoEnabled = it }
-            Spacer(Modifier.height(8.dp))
-            AdminField("نوع ارز (مثلاً USDT - TRC20 یا Monero)", cryptoAsset, { cryptoAsset = it })
-            Spacer(Modifier.height(8.dp))
-            AdminField("آدرس کیف‌پول", cryptoAddress, { cryptoAddress = it })
+            AdminField("آدرس‌های کیف‌پول — هر خط: «برچسب = آدرس»\nمثال: TON = UQ...", cryptoAddresses, { cryptoAddresses = it }, singleLine = false)
+            Spacer(Modifier.height(6.dp))
+            Text("می‌توانی چند آدرس در چند خط بگذاری (TON، تتر، مونرو و…).", style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted)
             Spacer(Modifier.height(8.dp))
             AdminField("توضیح برای کاربر (اختیاری)", cryptoNote, { cryptoNote = it }, singleLine = false)
         }
 
-        // ---- bank gateway ----
-        Text(
-            "درگاه بانکی (زرین‌پال/آقای پرداخت) از طریق شاپرک است و با هویت واقعی تو ثبت می‌شود. اگر نمی‌خواهی قابل ردیابی باشد، فقط از ارز دیجیتال استفاده کن.",
-            style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary,
-        )
+        // ---- card to card (no gateway) ----
         AppCard {
-            Text("نوع درگاه بانکی", style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                KindChip("زرین‌پال", !aqaye) { gateway = "zarinpal" }
-                KindChip("آقای پرداخت", aqaye) { gateway = "aqayepardakht" }
-            }
-            Spacer(Modifier.height(10.dp))
-            AdminField(if (aqaye) "کد درگاه / PIN (آقای پرداخت)" else "کد پذیرنده Merchant ID (زرین‌پال)", merchantId, { merchantId = it })
-            Spacer(Modifier.height(6.dp))
+            Text("کارت‌به‌کارت", style = MaterialTheme.typography.titleSmall, color = AppColors.Gold)
+            Spacer(Modifier.height(4.dp))
             Text(
-                if (aqaye) "اگر آقای پرداخت است، درگاهت باید برای همین دامنه ثبت/تأیید شده باشد."
-                else "کد ۳۶ کاراکتری زرین‌پال را وارد کن.",
-                style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted,
+                "کاربر مبلغ را به این کارت واریز می‌کند و کد پیگیری را ثبت می‌کند؛ بعد از تأیید تو فعال می‌شود. بدون درگاه پرداخت.",
+                style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary,
             )
+            Spacer(Modifier.height(10.dp))
+            AdminSwitchRow("فعال باشد", cardEnabled) { cardEnabled = it }
             Spacer(Modifier.height(8.dp))
-            AdminSwitchRow("حالت آزمایشی (Sandbox)", sandbox) { sandbox = it }
+            AdminField("شمارهٔ کارت", cardNumber, { cardNumber = it }, number = true)
+            Spacer(Modifier.height(8.dp))
+            AdminField("نام صاحب کارت", cardHolder, { cardHolder = it })
+            Spacer(Modifier.height(8.dp))
+            AdminField("توضیح (اختیاری)", cardNote, { cardNote = it }, singleLine = false)
         }
 
-        AdminSaveButton("ذخیره همهٔ تنظیمات", enabled = loaded && !saving) { save() }
+        AdminSaveButton("ذخیره", enabled = loaded && !saving) { save() }
         AdminMessage(msg, error)
     }
 }
@@ -729,9 +688,9 @@ fun AdminCryptoOrders(activity: MainActivity, onBack: () -> Unit) {
         }
     }
 
-    AdminSectionScaffold("سفارش‌های ارز دیجیتال", onBack) {
+    AdminSectionScaffold("تأیید پرداخت‌ها", onBack) {
         Text(
-            "کاربرانی که ارز دیجیتال فرستاده‌اند اینجا هستند. کد تراکنش (TxID) را در بلاک‌چین بررسی کن؛ اگر درست بود «تأیید» را بزن تا اشتراکشان فعال شود.",
+            "واریزی‌های کاربران (کریپتو و کارت‌به‌کارت) اینجاست. برای کریپتو، کد تراکنش را در بلاک‌چین و برای کارت، واریز را در حسابت بررسی کن؛ اگر درست بود «تأیید» را بزن تا اشتراک فعال شود.",
             style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary,
         )
         AdminMessage(msg, error)
@@ -740,15 +699,16 @@ fun AdminCryptoOrders(activity: MainActivity, onBack: () -> Unit) {
             AppCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
+                        val methodLabel = if (o.method == "card") "کارت‌به‌کارت" else "کریپتو"
                         Text("@${o.username} • ${o.planTitle}", style = MaterialTheme.typography.titleSmall)
-                        Text("${o.planDays} روز • ${o.asset}".faDigits(), style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted)
+                        Text("${o.planDays} روز • $methodLabel${if (o.asset.isNotBlank()) " • ${o.asset}" else ""}".faDigits(), style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted)
                     }
                     val color = when (o.status) { "approved" -> AppColors.Connected; "rejected" -> AppColors.Danger; else -> AppColors.Gold }
                     val label = when (o.status) { "approved" -> "تأییدشده"; "rejected" -> "ردشده"; else -> "در انتظار" }
                     Text(label, style = MaterialTheme.typography.bodySmall, color = color)
                 }
                 Spacer(Modifier.height(8.dp))
-                Text("TxID:", style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted)
+                Text(if (o.method == "card") "کد پیگیری:" else "TxID:", style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted)
                 Text(o.txid, style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
                 if (o.status == "pending") {
                     Spacer(Modifier.height(10.dp))

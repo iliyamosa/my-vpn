@@ -72,7 +72,12 @@ data class PaymentSettings(
     val cryptoEnabled: Boolean = false,
     val cryptoAsset: String = "",
     val cryptoAddress: String = "",
+    val cryptoAddresses: String = "",
     val cryptoNote: String = "",
+    val cardEnabled: Boolean = false,
+    val cardNumber: String = "",
+    val cardHolder: String = "",
+    val cardNote: String = "",
     val beyEnabled: Boolean = false,
     val beyApiKeySet: Boolean = false,
     val beyWebhookId: String = "",
@@ -90,6 +95,7 @@ data class CryptoOrder(
     val planDays: Int,
     val asset: String,
     val txid: String,
+    val method: String,
     val status: String,
     val created: Long,
 )
@@ -273,7 +279,8 @@ object AdminApi {
 
     private fun parseSettings(o: JSONObject) = PaymentSettings(
         o.optString("merchantId"), o.optString("gateway").ifBlank { "zarinpal" }, o.optBoolean("sandbox"), o.optString("buyUrl"),
-        o.optBoolean("cryptoEnabled"), o.optString("cryptoAsset"), o.optString("cryptoAddress"), o.optString("cryptoNote"),
+        o.optBoolean("cryptoEnabled"), o.optString("cryptoAsset"), o.optString("cryptoAddress"), o.optString("cryptoAddresses"), o.optString("cryptoNote"),
+        o.optBoolean("cardEnabled"), o.optString("cardNumber"), o.optString("cardHolder"), o.optString("cardNote"),
         o.optBoolean("beyEnabled"), o.optBoolean("beyApiKeySet"), o.optString("beyWebhookId"), o.optBoolean("beyWebhookSecretSet"),
     )
 
@@ -281,9 +288,8 @@ object AdminApi {
 
     fun saveSettings(base: String, token: String, s: PaymentSettings): PaymentSettings {
         val o = post(base, "/admin/settings", token, JSONObject()
-            .put("merchantId", s.merchantId).put("gateway", s.gateway).put("sandbox", s.sandbox).put("buyUrl", s.buyUrl)
-            .put("cryptoEnabled", s.cryptoEnabled).put("cryptoAsset", s.cryptoAsset).put("cryptoAddress", s.cryptoAddress).put("cryptoNote", s.cryptoNote)
-            .put("beyEnabled", s.beyEnabled).put("beyApiKey", s.beyApiKey).put("beyWebhookId", s.beyWebhookId).put("beyWebhookSecret", s.beyWebhookSecret))
+            .put("cryptoEnabled", s.cryptoEnabled).put("cryptoAddresses", s.cryptoAddresses).put("cryptoNote", s.cryptoNote)
+            .put("cardEnabled", s.cardEnabled).put("cardNumber", s.cardNumber).put("cardHolder", s.cardHolder).put("cardNote", s.cardNote))
         return parseSettings(o)
     }
 
@@ -295,7 +301,7 @@ object AdminApi {
         return (0 until (arr?.length() ?: 0)).map { i ->
             val o = arr!!.getJSONObject(i)
             CryptoOrder(o.optString("id"), o.optString("username"), o.optString("email"), o.optString("planTitle"),
-                o.optInt("planDays"), o.optString("asset"), o.optString("txid"), o.optString("status"), o.optLong("created"))
+                o.optInt("planDays"), o.optString("asset"), o.optString("txid"), o.optString("method").ifBlank { "crypto" }, o.optString("status"), o.optLong("created"))
         }
     }
 

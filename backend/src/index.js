@@ -132,43 +132,53 @@ input:focus{border-color:var(--b2)}
 .addr{word-break:break-all;background:rgba(10,12,22,.7);border:1px dashed var(--b2);border-radius:12px;padding:12px;font-size:13px;direction:ltr;text-align:left;cursor:pointer;margin:8px 0}
 </style><link href="https://cdn.jsdelivr.net/npm/vazirmatn@33.0.3/Vazirmatn-font-face.css" rel="stylesheet">`;
 
-function buildBuyPage(origin, plans, bank, crypto, bey) {
+function buildBuyPage(origin, plans, crypto, card) {
   const planCards = plans.map((p, i) => `
     <div class="plan${i === 0 ? " sel" : ""}" data-id="${esc(p.id)}" onclick="pick(this)">
       <span class="r"></span>
       <span class="nm"><b>${esc(p.title)}</b><small>${faNum(p.days)} روز</small></span>
       <span class="pr">${esc(p.price || (faNum(p.amountToman.toLocaleString("en-US")) + " تومان"))}</span>
     </div>`).join("");
-  const beyBtn = bey && bey.enabled ? `<button class="btn" id="bgo" onclick="payBey()">پرداخت ارزی (کریپتو) 🔒</button>` : ``;
-  const bankBtn = bank && bank.enabled ? `<button class="btn" id="go" onclick="pay()" style="background:linear-gradient(90deg,#3a7bff,#5b46c9)">پرداخت ریالی (درگاه بانکی)</button>` : ``;
-  const cryptoBox = crypto && crypto.enabled && crypto.address ? `
+  const addrRows = (crypto && crypto.addresses || []).map((a) => `
+      ${a.label ? `<div style="font-size:12px;color:var(--mute);text-align:right;margin-top:8px">${esc(a.label)}</div>` : ``}
+      <div class="addr" onclick="cp(this)" title="برای کپی ضربه بزنید">${esc(a.address)}</div>`).join("");
+  const cryptoBox = crypto && crypto.enabled ? `
     <div class="cbox">
-      <div class="ctitle">پرداخت با ارز دیجیتال${crypto.asset ? " (" + esc(crypto.asset) + ")" : ""}</div>
-      <p style="text-align:right">مبلغ پلن را به آدرس زیر بفرستید، سپس کد تراکنش (TxID) را وارد و ثبت کنید. بعد از بررسی توسط مدیر، اشتراک فعال می‌شود.</p>
-      <div class="addr" id="addr" onclick="copyAddr()" title="برای کپی ضربه بزنید">${esc(crypto.address)}</div>
+      <div class="ctitle">پرداخت با ارز دیجیتال</div>
+      <p style="text-align:right">مبلغ پلن را به یکی از آدرس‌های زیر بفرستید، سپس کد تراکنش (TxID) را وارد و ثبت کنید. بعد از بررسی، اشتراک فعال می‌شود.</p>
+      ${addrRows}
       ${crypto.note ? `<p style="text-align:right">${esc(crypto.note)}</p>` : ``}
-      <label>کد تراکنش (TxID)</label><input id="txid" dir="ltr" placeholder="hash تراکنش">
-      <button class="btn" id="cgo" onclick="payCrypto()">ثبت پرداخت ارزی</button>
+      <label>کد تراکنش (TxID)</label><input id="ctx" dir="ltr" placeholder="hash تراکنش">
+      <button class="btn" id="cgo" onclick="payM('crypto')">ثبت پرداخت کریپتو</button>
+    </div>` : ``;
+  const cardBox = card && card.enabled ? `
+    <div class="cbox">
+      <div class="ctitle" style="color:#f3cf7a">پرداخت کارت‌به‌کارت</div>
+      <p style="text-align:right">مبلغ پلن را به کارت زیر واریز کنید، سپس کد پیگیری واریز را وارد و ثبت کنید. بعد از بررسی، اشتراک فعال می‌شود.</p>
+      <div class="addr" onclick="cp(this)" title="برای کپی ضربه بزنید">${esc(card.number)}</div>
+      ${card.holder ? `<div style="text-align:center;font-size:14px;margin:6px 0">${esc(card.holder)}</div>` : ``}
+      ${card.note ? `<p style="text-align:right">${esc(card.note)}</p>` : ``}
+      <label>کد پیگیری واریز</label><input id="ktx" dir="ltr" placeholder="کد رهگیری/پیگیری">
+      <button class="btn" id="kgo" style="background:linear-gradient(90deg,#f3cf7a,#e0a92e);color:#1f1500" onclick="payM('card')">ثبت پرداخت کارت</button>
     </div>` : ``;
   let body;
   if (!plans.length) {
     body = `<p style="margin-top:20px">در حال حاضر پلنی برای خرید آنلاین تنظیم نشده است. لطفاً بعداً دوباره سر بزنید یا با پشتیبانی تماس بگیرید.</p>`;
-  } else if (!bankBtn && !cryptoBox && !beyBtn) {
+  } else if (!cryptoBox && !cardBox) {
     body = `<div class="plans">${planCards}</div><p style="margin-top:16px">روش پرداختی هنوز توسط مدیر فعال نشده است.</p>`;
   } else {
     body = `<div class="plans">${planCards}</div>
        <label>نام کاربری یا ایمیل</label><input id="login" autocomplete="username" dir="ltr">
        <label>رمز عبور</label><input id="pass" type="password" autocomplete="current-password" dir="ltr">
-       ${beyBtn}
-       ${bankBtn}
        ${cryptoBox}
+       ${cardBox}
        <div class="err" id="err"></div>`;
   }
   return `<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>خرید اشتراک — FAIROS VPN</title>${PAGE_CSS}</head><body><div class="wrap"><div class="card" id="card">
 <p class="logo">FAIROS<small> VPN</small></p>
 <h1>خرید اشتراک پرو</h1>
-<p>با نام کاربری و رمز حساب خودتان وارد شوید؛ بعد از پرداخت، اشتراک در برنامه فعال می‌شود.</p>
+<p>با نام کاربری و رمز حساب خودتان وارد شوید؛ بعد از واریز و ثبت، اشتراک پس از تأیید فعال می‌شود.</p>
 ${body}
 <div class="foot">FAIROS VPN</div>
 </div></div>
@@ -176,42 +186,20 @@ ${body}
 let sel=document.querySelector(".plan.sel")?.dataset.id||"";
 function pick(el){document.querySelectorAll(".plan").forEach(p=>p.classList.remove("sel"));el.classList.add("sel");sel=el.dataset.id;}
 function creds(){const l=document.getElementById("login").value.trim();const p=document.getElementById("pass").value;const e=document.getElementById("err");e.textContent="";if(!l||!p){e.textContent="نام کاربری و رمز را وارد کنید.";return null;}if(!sel){e.textContent="یک پلن انتخاب کنید.";return null;}return {login:l,password:p,planId:sel};}
-async function pay(){
+function cp(el){try{navigator.clipboard.writeText(el.textContent.trim());el.style.borderStyle="solid";}catch(e){}}
+async function payM(method){
   const c=creds();if(!c)return;const err=document.getElementById("err");
-  const btn=document.getElementById("go");btn.disabled=true;btn.textContent="در حال انتقال به درگاه…";
+  const ref=(method==='card'?document.getElementById("ktx"):document.getElementById("ctx")).value.trim();
+  if(!ref){err.textContent=(method==='card'?"کد پیگیری واریز را وارد کنید.":"کد تراکنش (TxID) را وارد کنید.");return;}
+  const btn=document.getElementById(method==='card'?"kgo":"cgo");btn.disabled=true;btn.textContent="در حال ثبت…";
   try{
-    const r=await fetch("/pay/start",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(c)});
-    const d=await r.json();
-    if(d.ok&&d.redirect){location.href=d.redirect;return;}
-    err.textContent=d.error||"خطا در ایجاد پرداخت.";
-  }catch(e){err.textContent="ارتباط با سرور برقرار نشد.";}
-  btn.disabled=false;btn.textContent="پرداخت ریالی (درگاه بانکی)";
-}
-async function payBey(){
-  const c=creds();if(!c)return;const err=document.getElementById("err");
-  const btn=document.getElementById("bgo");btn.disabled=true;btn.textContent="در حال انتقال به صفحهٔ پرداخت…";
-  try{
-    const r=await fetch("/pay/beyounger",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(c)});
-    const d=await r.json();
-    if(d.ok&&d.redirect){location.href=d.redirect;return;}
-    err.textContent=d.error||"خطا در ایجاد پرداخت ارزی.";
-  }catch(e){err.textContent="ارتباط با سرور برقرار نشد.";}
-  btn.disabled=false;btn.textContent="پرداخت ارزی (کریپتو) 🔒";
-}
-async function payCrypto(){
-  const c=creds();if(!c)return;const err=document.getElementById("err");
-  const txid=document.getElementById("txid").value.trim();
-  if(!txid){err.textContent="کد تراکنش (TxID) را وارد کنید.";return;}
-  const btn=document.getElementById("cgo");btn.disabled=true;btn.textContent="در حال ثبت…";
-  try{
-    const r=await fetch("/pay/crypto",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...c,txid})});
+    const r=await fetch("/pay/crypto",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...c,method,txid:ref})});
     const d=await r.json();
     if(d.ok){document.getElementById("card").innerHTML='<p class="logo">FAIROS<small> VPN</small></p><div class="badge" style="border-color:#2fe3b8;color:#2fe3b8">✓</div><h1>ثبت شد</h1><p>پرداخت شما ثبت شد. پس از بررسی و تأیید توسط مدیر، اشتراک پرو روی حسابتان فعال می‌شود.</p>';return;}
     err.textContent=d.error||"خطا در ثبت پرداخت.";
   }catch(e){err.textContent="ارتباط با سرور برقرار نشد.";}
-  btn.disabled=false;btn.textContent="ثبت پرداخت ارزی";
+  btn.disabled=false;btn.textContent=(method==='card'?"ثبت پرداخت کارت":"ثبت پرداخت کریپتو");
 }
-function copyAddr(){const a=document.getElementById("addr");try{navigator.clipboard.writeText(a.textContent.trim());a.style.borderStyle="solid";}catch(e){}}
 </script></body></html>`;
 }
 
@@ -262,7 +250,7 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
-    if (path === "/") return json({ ok: true, service: "fairosvpn", build: "20261024-beyounger" });
+    if (path === "/") return json({ ok: true, service: "fairosvpn", build: "20261024-manual2" });
     // The purchase website is served straight from the Worker.
     if (path === "/buy" || path === "/pay/callback") {
       const stub0 = env.HUB.get(env.HUB.idFromName("main"));
@@ -435,7 +423,12 @@ export class Hub {
       if (typeof b.cryptoEnabled === "boolean") A.kvSet(this.sql, "crypto_enabled", b.cryptoEnabled ? "1" : "0");
       if (typeof b.cryptoAsset === "string") A.kvSet(this.sql, "crypto_asset", b.cryptoAsset.trim().slice(0, 60));
       if (typeof b.cryptoAddress === "string") A.kvSet(this.sql, "crypto_address", b.cryptoAddress.trim().slice(0, 200));
+      if (typeof b.cryptoAddresses === "string") A.kvSet(this.sql, "crypto_addresses", b.cryptoAddresses.slice(0, 2000));
       if (typeof b.cryptoNote === "string") A.kvSet(this.sql, "crypto_note", b.cryptoNote.trim().slice(0, 300));
+      if (typeof b.cardEnabled === "boolean") A.kvSet(this.sql, "card_enabled", b.cardEnabled ? "1" : "0");
+      if (typeof b.cardNumber === "string") A.kvSet(this.sql, "card_number", b.cardNumber.trim().slice(0, 40));
+      if (typeof b.cardHolder === "string") A.kvSet(this.sql, "card_holder", b.cardHolder.trim().slice(0, 80));
+      if (typeof b.cardNote === "string") A.kvSet(this.sql, "card_note", b.cardNote.trim().slice(0, 300));
       if (typeof b.beyEnabled === "boolean") A.kvSet(this.sql, "bey_enabled", b.beyEnabled ? "1" : "0");
       // API key and webhook secret are write-only: a blank value keeps the existing one.
       if (typeof b.beyApiKey === "string" && b.beyApiKey.trim()) A.kvSet(this.sql, "bey_api_key", b.beyApiKey.trim().slice(0, 2000));
@@ -451,7 +444,12 @@ export class Hub {
       cryptoEnabled: A.kvGet(this.sql, "crypto_enabled", "0") === "1",
       cryptoAsset: A.kvGet(this.sql, "crypto_asset", ""),
       cryptoAddress: A.kvGet(this.sql, "crypto_address", ""),
+      cryptoAddresses: A.kvGet(this.sql, "crypto_addresses", ""),
       cryptoNote: A.kvGet(this.sql, "crypto_note", ""),
+      cardEnabled: A.kvGet(this.sql, "card_enabled", "0") === "1",
+      cardNumber: A.kvGet(this.sql, "card_number", ""),
+      cardHolder: A.kvGet(this.sql, "card_holder", ""),
+      cardNote: A.kvGet(this.sql, "card_note", ""),
       beyEnabled: A.kvGet(this.sql, "bey_enabled", "0") === "1",
       // Never send the full API key back; just whether one is set.
       beyApiKeySet: !!beyKey,
@@ -598,14 +596,27 @@ export class Hub {
   buyPage(origin) {
     const plans = A.listPlans(this.sql).filter((p) => Number(p.amountToman || 0) > 0);
     const bank = { enabled: !!A.kvGet(this.sql, "merchant_id", "") };
+    // Crypto addresses: one per line "Label = Address" (fall back to the legacy single address).
+    let addresses = A.kvGet(this.sql, "crypto_addresses", "").split("\n").map((s) => s.trim()).filter(Boolean).map((ln) => {
+      const i = ln.indexOf("=");
+      return i > 0 ? { label: ln.slice(0, i).trim(), address: ln.slice(i + 1).trim() } : { label: "", address: ln };
+    }).filter((a) => a.address);
+    if (!addresses.length) {
+      const legacy = A.kvGet(this.sql, "crypto_address", "");
+      if (legacy) addresses = [{ label: A.kvGet(this.sql, "crypto_asset", ""), address: legacy }];
+    }
     const crypto = {
-      enabled: A.kvGet(this.sql, "crypto_enabled", "0") === "1",
-      asset: A.kvGet(this.sql, "crypto_asset", ""),
-      address: A.kvGet(this.sql, "crypto_address", ""),
+      enabled: A.kvGet(this.sql, "crypto_enabled", "0") === "1" && addresses.length > 0,
+      addresses,
       note: A.kvGet(this.sql, "crypto_note", ""),
     };
-    const bey = { enabled: A.kvGet(this.sql, "bey_enabled", "0") === "1" && !!A.kvGet(this.sql, "bey_api_key", "") && !!A.kvGet(this.sql, "bey_webhook_id", "") };
-    const html = buildBuyPage(origin, plans, bank, crypto, bey);
+    const card = {
+      enabled: A.kvGet(this.sql, "card_enabled", "0") === "1" && !!A.kvGet(this.sql, "card_number", ""),
+      number: A.kvGet(this.sql, "card_number", ""),
+      holder: A.kvGet(this.sql, "card_holder", ""),
+      note: A.kvGet(this.sql, "card_note", ""),
+    };
+    const html = buildBuyPage(origin, plans, crypto, card);
     return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", ...CORS } });
   }
 

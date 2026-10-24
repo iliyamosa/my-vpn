@@ -75,28 +75,39 @@ jobs:
           set -o pipefail
           echo "sdk.dir=${ANDROID_HOME}" > local.properties
           chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace assembleClientRelease 2>&1 | tee build.log
+          # APKs for direct install + an AAB (App Bundle) for Google Play.
+          ./gradlew --no-daemon --stacktrace assembleClientRelease bundleClientRelease 2>&1 | tee build.log
 
       - name: Collect APKs
         id: collect
         run: |
           mkdir -p out
+          # The download files carry the app's own name (from app.properties), not "app-*".
+          NAME=$(grep -E '^APP_NAME=' app.properties | cut -d= -f2- | tr -d '\r' | sed 's/[[:space:]]//g')
+          NAME=${NAME:-FAIROSVPN}
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
           for f in app/build/outputs/apk/client/release/*.apk; do
             case "$f" in
-              *arm64-v8a*) cp "$f" out/app-arm64-v8a.apk ;;
-              *armeabi-v7a*) cp "$f" out/app-armeabi-v7a.apk ;;
-              *universal*) cp "$f" out/app-universal.apk ;;
+              *arm64-v8a*) cp "$f" "out/${NAME}-arm64.apk" ;;
+              *armeabi-v7a*) cp "$f" "out/${NAME}-arm32.apk" ;;
+              *universal*) cp "$f" "out/${NAME}.apk" ;;
             esac
+          done
+          # The Play upload bundle.
+          for f in app/build/outputs/bundle/clientRelease/*.aab; do
+            [ -f "$f" ] && cp "$f" "out/${NAME}-play.aab"
           done
           ls -la out
           VERSION_NAME=$(grep -E '^VERSION_NAME=' app.properties | cut -d= -f2 | tr -d '[:space:]')
           echo "version=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
 
-      - name: Upload APK artifact
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fairosvpn-${{ steps.collect.outputs.version }}-b${{ github.run_number }}
-          path: out/*.apk
+          name: ${{ steps.collect.outputs.name }}-${{ steps.collect.outputs.version }}-b${{ github.run_number }}
+          path: |
+            out/*.apk
+            out/*.aab
           if-no-files-found: error
 
       - name: Publish release
@@ -104,11 +115,12 @@ jobs:
         if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
+          NAME: ${{ steps.collect.outputs.name }}
         run: |
           TAG="v${{ steps.collect.outputs.version }}-b${{ github.run_number }}"
-          gh release create "$TAG" out/app-universal.apk out/app-arm64-v8a.apk out/app-armeabi-v7a.apk \
+          gh release create "$TAG" "out/${NAME}.apk" "out/${NAME}-arm64.apk" "out/${NAME}-arm32.apk" "out/${NAME}-play.aab" \
             --title "$TAG" \
-            --notes "app-arm64-v8a.apk: most phones. app-armeabi-v7a.apk: older phones. app-universal.apk: works on all phones (bigger)." \
+            --notes "${NAME}.apk: نصب روی همهٔ گوشی‌ها (پیشنهادی). ${NAME}-arm64.apk: گوشی‌های جدید. ${NAME}-arm32.apk: گوشی‌های قدیمی. ${NAME}-play.aab: برای انتشار در Google Play." \
             --latest
           # keep only the 5 newest public app releases
           gh release list --limit 100 --exclude-drafts --json tagName,createdAt \

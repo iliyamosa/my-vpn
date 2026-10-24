@@ -121,6 +121,8 @@ export function initAccountTables(sql) {
   addColumn(sql, "plans", "amount_usd", "REAL DEFAULT 0");
   // Beyounger (and other providers) key the payment by our out_trade_no; keep the provider's id too.
   addColumn(sql, "payments", "provider_ref", "TEXT DEFAULT ''");
+  // Manual orders can be crypto or card-to-card.
+  addColumn(sql, "crypto_orders", "method", "TEXT DEFAULT 'crypto'");
 }
 
 /** Adds a column if it isn't already there (SQLite has no IF NOT EXISTS for columns). */
@@ -473,18 +475,21 @@ export function redeemPlan(sql, acc, body) {
 
 // ---------------------------------------------------------------- crypto orders (no bank gateway)
 
-/** The buyer submits a transaction id; it waits for the admin to approve it. */
-export function createCryptoOrder(sql, acc, body) {
+/** The buyer submits a reference (crypto TxID or card tracking code); it waits for admin approval. */
+export function createManualOrder(sql, acc, body) {
   const plan = one(sql, "SELECT * FROM plans WHERE id = ? AND enabled = 1", String(body.planId || ""));
   if (!plan) throw new ApiError(404, "پلن پیدا نشد.");
-  const txid = String(body.txid || "").trim().slice(0, 200);
-  if (!txid) throw new ApiError(400, "کد تراکنش (TxID) را وارد کنید.");
-  const asset = kvGet(sql, "crypto_asset", "");
+  const method = body.method === "card" ? "card" : "crypto";
+  const ref = String(body.txid || body.reference || "").trim().slice(0, 200);
+  if (!ref) throw new ApiError(400, method === "card" ? "کد پیگیری واریز را وارد کنید." : "کد تراکنش (TxID) را وارد کنید.");
+  const label = String(body.label || "").trim().slice(0, 60) || (method === "card" ? "کارت به کارت" : "کریپتو");
   const id = newId();
-  sql.exec("INSERT INTO crypto_orders (id, account_id, plan_id, asset, txid, status, created) VALUES (?, ?, ?, ?, ?, 'pending', ?)",
-    id, acc.id, plan.id, asset, txid, Date.now());
+  sql.exec("INSERT INTO crypto_orders (id, account_id, plan_id, asset, txid, status, created, method) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)",
+    id, acc.id, plan.id, label, ref, Date.now(), method);
   return { ok: true, id };
 }
+// Back-compat alias.
+export const createCryptoOrder = createManualOrder;
 
 export function adminListCryptoOrders(sql, status) {
   const where = status ? "WHERE o.status = ?" : "";
@@ -495,7 +500,7 @@ export function adminListCryptoOrders(sql, status) {
     .map((o) => ({
       id: o.id, accountId: o.account_id, username: o.username || "", email: o.email || "",
       planId: o.plan_id, planTitle: o.plan_title || "", planDays: Number(o.plan_days || 0),
-      asset: o.asset || "", txid: o.txid || "", status: o.status, created: Number(o.created || 0),
+      asset: o.asset || "", txid: o.txid || "", method: o.method || "crypto", status: o.status, created: Number(o.created || 0),
     }));
 }
 
