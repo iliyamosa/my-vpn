@@ -1,8 +1,8 @@
 # FAIROS tunnel — a separate Worker that runs the VLESS-over-WebSocket proxy.
 # Deploy with:  wrangler deploy --config tunnel/wrangler.toml
-name = "fairos-tunnel"
+name = "fairos-cf"
 main = "worker.js"
-compatibility_date = "2025-09-01"
+compatibility_date = "2024-11-06"
 workers_dev = true
 
 [vars]
