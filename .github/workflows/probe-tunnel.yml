@@ -1,0 +1,39 @@
+name: Probe tunnel
+
+# Curls the live tunnel URL several times over ~1 minute WITHOUT redeploying,
+# to tell apart a persistent failure from post-deploy propagation lag / flakiness.
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Worker URL to probe"
+        required: false
+        default: "https://fairos-cf.fiaros705.workers.dev"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe repeatedly
+        env:
+          GH_TOKEN: ${{ github.token }}
+          URL: ${{ github.event.inputs.url }}
+        run: |
+          : "${URL:=https://fairos-cf.fiaros705.workers.dev}"
+          {
+            echo "Probe of ${URL} (run ${{ github.run_number }}), 6 tries over ~60s."
+            echo
+            echo '```'
+            for i in $(seq 1 6); do
+              code=$(curl -sS -m 20 -o b.txt -w "%{http_code}" "${URL}/?cb=${i}${RANDOM}" 2>/dev/null || echo ERR)
+              body=$(head -c 80 b.txt 2>/dev/null | tr '\n' ' ')
+              echo "try $i: HTTP ${code} | ${body}"
+              sleep 10
+            done
+            echo '```'
+          } > probe.md
+          gh issue create --title "Tunnel probe #${{ github.run_number }}" --body-file probe.md || true
