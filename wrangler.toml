@@ -13,7 +13,7 @@ ADMIN_USER = "iliyamosa"
 # The admin PASSWORD is never stored — only its irreversible PBKDF2 hash (120k iterations).
 # Recovering the password from this hash is infeasible. To rotate it, generate a new hash
 # and replace the line below, or move it to a Cloudflare secret of the same name and delete it here.
-ADMIN_PASS_HASH = "pbkdf2$120000$ySHRBedXeWTu3ntKSXyjJQ==$dUxufzcpLErjUNSEvitjhOeXOTFkW00WAUrRtl9cbzw="
+ADMIN_PASS_HASH = "pbkdf2$120000$+BT+ff9iwmZb1riRGCJVAw==$54SNtOTR49KN5HvsaiWQRX73k+T0DfdxAwz6U+8iuBo="
 
 [[durable_objects.bindings]]
 name = "HUB"

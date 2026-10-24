@@ -49,7 +49,6 @@ import kotlinx.coroutines.launch
 fun AuthScreen(activity: MainActivity) {
     val scope = rememberCoroutineScope()
     var tab by remember { mutableStateOf(0) } // 0 = login, 1 = register
-    var adminMode by remember { mutableStateOf(false) }
     var login by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
@@ -62,19 +61,18 @@ fun AuthScreen(activity: MainActivity) {
         error = null
         busy = true
         scope.launch {
-            val result = when {
-                adminMode -> {
-                    if (login.isBlank() || password.isBlank()) { busy = false; error = "نام کاربری و رمز مدیر را وارد کنید."; return@launch }
-                    AccountManager.adminLogin(activity, login, password)
-                }
-                tab == 0 -> {
-                    if (login.isBlank() || password.isBlank()) { busy = false; error = "نام کاربری و رمز را وارد کنید."; return@launch }
-                    AccountManager.login(activity, login, password)
-                }
-                else -> {
-                    if (email.isBlank() || username.isBlank() || password.isBlank()) { busy = false; error = "همه‌ی فیلدها را کامل کنید."; return@launch }
-                    AccountManager.register(activity, email, username, password, display.ifBlank { username }, "")
-                }
+            val result = if (tab == 0) {
+                if (login.isBlank() || password.isBlank()) { busy = false; error = "نام کاربری و رمز را وارد کنید."; return@launch }
+                val r = AccountManager.login(activity, login, password)
+                // The admin signs in from the very same form: if a normal login fails,
+                // try the admin credentials before showing an error.
+                if (r.isFailure) {
+                    val adminR = AccountManager.adminLogin(activity, login, password)
+                    if (adminR.isSuccess) adminR else r
+                } else r
+            } else {
+                if (email.isBlank() || username.isBlank() || password.isBlank()) { busy = false; error = "همه‌ی فیلدها را کامل کنید."; return@launch }
+                AccountManager.register(activity, email, username, password, display.ifBlank { username }, "")
             }
             busy = false
             result.onFailure { e ->
@@ -106,52 +104,44 @@ fun AuthScreen(activity: MainActivity) {
             )
             Spacer(Modifier.height(26.dp))
 
-            if (adminMode) {
-                Text("ورود مدیر", style = MaterialTheme.typography.titleMedium, color = AppColors.Gold)
-                Spacer(Modifier.height(14.dp))
-                AuthField("نام کاربری مدیر", login, { login = it.trim() }, ltr = true)
-                Spacer(Modifier.height(10.dp))
-                AuthField("رمز عبور مدیر", password, { password = it }, password = true, ltr = true)
-            } else {
-                // segmented control
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(AppColors.Surface.copy(alpha = 0.7f))
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    listOf("ورود", "ثبت‌نام").forEachIndexed { i, label ->
-                        val sel = i == tab
-                        Box(
-                            Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(11.dp))
-                                .background(if (sel) AppColors.Violet else Color.Transparent)
-                                .clickable { tab = i; error = null }
-                                .padding(vertical = 11.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(label, color = if (sel) Color.White else AppColors.TextSecondary, style = MaterialTheme.typography.titleSmall)
-                        }
+            // segmented control
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(AppColors.Surface.copy(alpha = 0.7f))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                listOf("ورود", "ثبت‌نام").forEachIndexed { i, label ->
+                    val sel = i == tab
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(11.dp))
+                            .background(if (sel) AppColors.Violet else Color.Transparent)
+                            .clickable { tab = i; error = null }
+                            .padding(vertical = 11.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(label, color = if (sel) Color.White else AppColors.TextSecondary, style = MaterialTheme.typography.titleSmall)
                     }
                 }
-                Spacer(Modifier.height(18.dp))
+            }
+            Spacer(Modifier.height(18.dp))
 
-                if (tab == 0) {
-                    AuthField("نام کاربری یا ایمیل", login, { login = it.trim() }, ltr = true)
-                    Spacer(Modifier.height(10.dp))
-                    AuthField("رمز عبور", password, { password = it }, password = true, ltr = true)
-                } else {
-                    AuthField("ایمیل", email, { email = it.trim() }, ltr = true, keyboard = KeyboardType.Email)
-                    Spacer(Modifier.height(10.dp))
-                    AuthField("نام کاربری (انگلیسی)", username, { username = it.trim() }, ltr = true)
-                    Spacer(Modifier.height(10.dp))
-                    AuthField("نام نمایشی", display, { display = it })
-                    Spacer(Modifier.height(10.dp))
-                    AuthField("رمز عبور (حداقل ۶ حرف)", password, { password = it }, password = true, ltr = true)
-                }
+            if (tab == 0) {
+                AuthField("نام کاربری یا ایمیل", login, { login = it.trim() }, ltr = true)
+                Spacer(Modifier.height(10.dp))
+                AuthField("رمز عبور", password, { password = it }, password = true, ltr = true)
+            } else {
+                AuthField("ایمیل", email, { email = it.trim() }, ltr = true, keyboard = KeyboardType.Email)
+                Spacer(Modifier.height(10.dp))
+                AuthField("نام کاربری (انگلیسی)", username, { username = it.trim() }, ltr = true)
+                Spacer(Modifier.height(10.dp))
+                AuthField("نام نمایشی", display, { display = it })
+                Spacer(Modifier.height(10.dp))
+                AuthField("رمز عبور (حداقل ۶ حرف)", password, { password = it }, password = true, ltr = true)
             }
 
             if (error != null) {
@@ -160,20 +150,8 @@ fun AuthScreen(activity: MainActivity) {
             }
 
             Spacer(Modifier.height(20.dp))
-            val buttonText = when {
-                adminMode -> "ورود مدیر"
-                tab == 0 -> "ورود"
-                else -> "ثبت‌نام و شروع"
-            }
-            GradientButton(buttonText, onClick = { submit() }, enabled = !busy, loading = busy)
-            Spacer(Modifier.height(14.dp))
-            Text(
-                if (adminMode) "بازگشت به ورود کاربر" else "ورود مدیر",
-                style = MaterialTheme.typography.bodySmall,
-                color = AppColors.TextSecondary,
-                modifier = Modifier.clickable { adminMode = !adminMode; error = null; password = "" },
-            )
-            Spacer(Modifier.height(16.dp))
+            GradientButton(if (tab == 0) "ورود" else "ثبت‌نام و شروع", onClick = { submit() }, enabled = !busy, loading = busy)
+            Spacer(Modifier.height(20.dp))
             Text(
                 "ما IP، سایت‌هایی که باز می‌کنید و ترافیک شما را ذخیره نمی‌کنیم.",
                 style = MaterialTheme.typography.bodySmall,
