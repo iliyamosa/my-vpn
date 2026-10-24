@@ -1,0 +1,53 @@
+name: Deploy tunnel
+
+# Deploys the VLESS-over-WebSocket proxy Worker (tunnel/). Manual only, so it never
+# deploys by accident. Uses the same CLOUDFLARE_API_TOKEN secret as the backend.
+# Note: a general-purpose proxy on Workers is a gray area in Cloudflare's ToS, so you
+# may prefer to point CLOUDFLARE_API_TOKEN at a SEPARATE Cloudflare account for this.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: deploy-tunnel
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Deploy tunnel worker
+        id: deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -o pipefail
+          npx --yes wrangler@4 deploy --config tunnel/wrangler.toml 2>&1 | tee deploy.log
+
+      - name: Report failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "Tunnel deploy failed (run ${{ github.run_number }})."
+            echo '```'
+            grep -iE "error|account|auth|code:|not found|unauthor|forbidden|socket|compat|✘|✓ |Uploaded|Deployed|workers.dev" deploy.log 2>/dev/null | head -50 || echo "(no deploy.log)"
+            echo '```'
+          } > treport.md
+          gh issue create --title "Tunnel deploy failed #${{ github.run_number }}" --body-file treport.md || true

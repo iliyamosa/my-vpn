@@ -1,0 +1,12 @@
+# FAIROS tunnel — a separate Worker that runs the VLESS-over-WebSocket proxy.
+# Deploy with:  wrangler deploy --config tunnel/wrangler.toml
+name = "fairos-tunnel"
+main = "worker.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+[vars]
+# The VLESS user id. Anyone with this id + the worker domain can use the proxy.
+UUID = "22be472e-d0cd-4c45-ae0a-6df6b12fe711"
+# Optional relay IP for destinations Cloudflare can't reach directly (leave empty normally).
+PROXYIP = ""
