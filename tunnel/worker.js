@@ -2,11 +2,21 @@
 // Clients connect with VLESS + WS + TLS on port 443; the Worker opens the outbound
 // TCP connection from Cloudflare's edge, so filtered destinations become reachable.
 // UDP is only handled for DNS (port 53), forwarded over DoH.
-import { connect } from "cloudflare:sockets";
+//
+// NOTE: cloudflare:sockets is loaded lazily (dynamic import) so that a failure to
+// load it surfaces as a readable error on /health instead of a raw 1101 page.
 
 let USER_ID = "22be472e-d0cd-4c45-ae0a-6df6b12fe711";
 // Optional fallback relay for destinations Cloudflare can't reach directly (set via PROXYIP var).
 let PROXY_IP = "";
+
+let _connect = null;
+async function getConnect() {
+  if (_connect) return _connect;
+  const mod = await import("cloudflare:sockets");
+  _connect = mod.connect;
+  return _connect;
+}
 
 export default {
   async fetch(request, env) {
@@ -17,6 +27,18 @@ export default {
       if (upgrade !== "websocket") {
         const url = new URL(request.url);
         if (url.pathname === "/") return new Response("ok", { status: 200 });
+        if (url.pathname === "/health") {
+          // Runtime self-test: can this Worker open an outbound TCP socket?
+          try {
+            const connect = await getConnect();
+            const socket = connect({ hostname: "1.1.1.1", port: 443 });
+            if (socket.opened) await socket.opened;
+            try { await socket.close(); } catch (e) {}
+            return new Response("sockets ok", { status: 200 });
+          } catch (e) {
+            return new Response("health err: " + (e && e.message ? e.message : e), { status: 200 });
+          }
+        }
         if (url.pathname === `/sub/${USER_ID}`) {
           const host = request.headers.get("Host");
           return new Response(buildVlessLink(host), {
@@ -45,6 +67,7 @@ async function handleWs(request) {
 
   let remote = { value: null };
   let isDns = false;
+  let udpWrite = null;
   const early = request.headers.get("sec-websocket-protocol") || "";
   const readable = wsReadable(ws, early);
 
@@ -74,12 +97,12 @@ async function handleWs(request) {
     abort() {},
   })).catch(() => safeClose(ws));
 
-  let udpWrite = null;
   return new Response(null, { status: 101, webSocket: client });
 }
 
 async function outboundTcp(remote, address, port, rawData, ws, resHeader) {
   async function open(addr) {
+    const connect = await getConnect();
     const socket = connect({ hostname: addr, port });
     remote.value = socket;
     const w = socket.writable.getWriter();
