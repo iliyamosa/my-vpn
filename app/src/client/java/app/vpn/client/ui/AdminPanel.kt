@@ -44,7 +44,7 @@ import app.vpn.ui.AppColors
 import app.vpn.ui.AppIcon
 import app.vpn.ui.GradientButton
 
-enum class AdminSection { HOME, ACCOUNTS, PRO_SERVERS, PLANS, MISSIONS, NOTICES, PAYMENT, CONFIG }
+enum class AdminSection { HOME, ACCOUNTS, PRO_SERVERS, PLANS, MISSIONS, NOTICES, PAYMENT, CRYPTO_ORDERS, CONFIG }
 
 /** Resolves the admin session token and backend base for the admin API calls. */
 fun adminToken(activity: MainActivity): String = ClientStore(activity).adminToken
@@ -64,6 +64,7 @@ fun AdminPanel(activity: MainActivity, onExit: () -> Unit) {
         AdminSection.MISSIONS -> AdminMissions(activity) { section = AdminSection.HOME }
         AdminSection.NOTICES -> AdminNotices(activity) { section = AdminSection.HOME }
         AdminSection.PAYMENT -> AdminPayment(activity) { section = AdminSection.HOME }
+        AdminSection.CRYPTO_ORDERS -> AdminCryptoOrders(activity) { section = AdminSection.HOME }
         AdminSection.CONFIG -> AdminConfig(activity) { section = AdminSection.HOME }
     }
 }
@@ -86,7 +87,8 @@ private fun AdminHome(activity: MainActivity, onExit: () -> Unit, open: (AdminSe
                 AdminMenuRow(R.drawable.ic_crown, "پلن‌های اشتراک", "قیمت، مدت و هزینهٔ امتیازی") { open(AdminSection.PLANS) }
                 AdminMenuRow(R.drawable.ic_gift, "ماموریت‌ها", "تعریف ماموریت و امتیاز") { open(AdminSection.MISSIONS) }
                 AdminMenuRow(R.drawable.ic_bell, "اعلان‌ها", "ارسال پیام به کاربران") { open(AdminSection.NOTICES) }
-                AdminMenuRow(R.drawable.ic_wallet, "درگاه پرداخت", "کد پذیرنده و تنظیمات زرین‌پال") { open(AdminSection.PAYMENT) }
+                AdminMenuRow(R.drawable.ic_wallet, "درگاه پرداخت", "ارز دیجیتال، زرین‌پال، آقای پرداخت") { open(AdminSection.PAYMENT) }
+                AdminMenuRow(R.drawable.ic_gift, "سفارش‌های ارز دیجیتال", "تأیید پرداخت‌های ارزی کاربران") { open(AdminSection.CRYPTO_ORDERS) }
                 AdminMenuRow(R.drawable.ic_tune, "تنظیمات زنده", "سرور رایگان، پشتیبانی، به‌روزرسانی", last = true) { open(AdminSection.CONFIG) }
             }
             AppCard(modifier = Modifier.clickable { onExit() }) {

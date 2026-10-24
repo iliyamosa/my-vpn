@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import app.vpn.client.MainActivity
 import app.vpn.common.AdminAccount
 import app.vpn.common.AdminApi
+import app.vpn.common.CryptoOrder
 import app.vpn.common.AdminMission
 import app.vpn.common.AdminNotice
 import app.vpn.common.AdminPlan
@@ -577,15 +578,23 @@ fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
     var gateway by remember { mutableStateOf("zarinpal") }
     var sandbox by remember { mutableStateOf(false) }
     var buyUrl by remember { mutableStateOf("") }
+    var cryptoEnabled by remember { mutableStateOf(false) }
+    var cryptoAsset by remember { mutableStateOf("") }
+    var cryptoAddress by remember { mutableStateOf("") }
+    var cryptoNote by remember { mutableStateOf("") }
     var msg by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var loaded by remember { mutableStateOf(false) }
 
+    fun apply(s: PaymentSettings) {
+        merchantId = s.merchantId; gateway = s.gateway; sandbox = s.sandbox; buyUrl = s.buyUrl
+        cryptoEnabled = s.cryptoEnabled; cryptoAsset = s.cryptoAsset; cryptoAddress = s.cryptoAddress; cryptoNote = s.cryptoNote
+    }
+
     LaunchedEffect(Unit) {
         try {
-            val s = withContext(Dispatchers.IO) { AdminApi.getSettings(base, token) }
-            merchantId = s.merchantId; gateway = s.gateway; sandbox = s.sandbox; buyUrl = s.buyUrl; loaded = true
+            apply(withContext(Dispatchers.IO) { AdminApi.getSettings(base, token) }); loaded = true
         } catch (e: Exception) { msg = e.message; error = true }
     }
 
@@ -593,8 +602,13 @@ fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
         saving = true
         scope.launch {
             try {
-                val s = withContext(Dispatchers.IO) { AdminApi.saveSettings(base, token, PaymentSettings(merchantId.trim(), gateway.trim(), sandbox, buyUrl.trim())) }
-                merchantId = s.merchantId; gateway = s.gateway; sandbox = s.sandbox; buyUrl = s.buyUrl
+                val s = withContext(Dispatchers.IO) {
+                    AdminApi.saveSettings(base, token, PaymentSettings(
+                        merchantId.trim(), gateway.trim(), sandbox, buyUrl.trim(),
+                        cryptoEnabled, cryptoAsset.trim(), cryptoAddress.trim(), cryptoNote.trim(),
+                    ))
+                }
+                apply(s)
                 msg = "تنظیمات پرداخت ذخیره شد."; error = false
             } catch (e: Exception) { msg = e.message; error = true } finally { saving = false }
         }
@@ -602,12 +616,31 @@ fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
 
     val aqaye = isAqayeGateway(gateway)
     AdminSectionScaffold("درگاه پرداخت", onBack) {
+        // ---- crypto (recommended for privacy) ----
+        AppCard {
+            Text("پرداخت با ارز دیجیتال", style = MaterialTheme.typography.titleSmall, color = AppColors.Connected)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "این روش از بانک و شاپرک عبور نمی‌کند، پس در سیستم بانکی ایران ردیابی نمی‌شود. کاربر مبلغ را به آدرس کیف‌پول می‌فرستد و کد تراکنش را ثبت می‌کند؛ بعد از تأیید تو، اشتراکش فعال می‌شود. برای حریم خصوصی بیشتر، Monero (XMR) بهتر از USDT است.",
+                style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary,
+            )
+            Spacer(Modifier.height(10.dp))
+            AdminSwitchRow("پرداخت ارز دیجیتال فعال باشد", cryptoEnabled) { cryptoEnabled = it }
+            Spacer(Modifier.height(8.dp))
+            AdminField("نوع ارز (مثلاً USDT - TRC20 یا Monero)", cryptoAsset, { cryptoAsset = it })
+            Spacer(Modifier.height(8.dp))
+            AdminField("آدرس کیف‌پول", cryptoAddress, { cryptoAddress = it })
+            Spacer(Modifier.height(8.dp))
+            AdminField("توضیح برای کاربر (اختیاری)", cryptoNote, { cryptoNote = it }, singleLine = false)
+        }
+
+        // ---- bank gateway ----
         Text(
-            "نوع درگاهت را انتخاب کن و کد آن را وارد کن تا خرید آنلاین فعال شود. تا وقتی کد خالی باشد، دکمهٔ خرید به کاربر می‌گوید درگاه آماده نیست.",
+            "درگاه بانکی (زرین‌پال/آقای پرداخت) از طریق شاپرک است و با هویت واقعی تو ثبت می‌شود. اگر نمی‌خواهی قابل ردیابی باشد، فقط از ارز دیجیتال استفاده کن.",
             style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary,
         )
         AppCard {
-            Text("نوع درگاه", style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
+            Text("نوع درگاه بانکی", style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 KindChip("زرین‌پال", !aqaye) { gateway = "zarinpal" }
@@ -617,16 +650,84 @@ fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
             AdminField(if (aqaye) "کد درگاه / PIN (آقای پرداخت)" else "کد پذیرنده Merchant ID (زرین‌پال)", merchantId, { merchantId = it })
             Spacer(Modifier.height(6.dp))
             Text(
-                if (aqaye) "همان «کد درگاه/pin» را از پنل آقای پرداخت وارد کن."
+                if (aqaye) "اگر آقای پرداخت است، درگاهت باید برای همین دامنه ثبت/تأیید شده باشد."
                 else "کد ۳۶ کاراکتری زرین‌پال را وارد کن.",
                 style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted,
             )
             Spacer(Modifier.height(8.dp))
             AdminSwitchRow("حالت آزمایشی (Sandbox)", sandbox) { sandbox = it }
-            Spacer(Modifier.height(10.dp))
-            AdminSaveButton("ذخیره", enabled = loaded && !saving) { save() }
         }
+
+        AdminSaveButton("ذخیره همهٔ تنظیمات", enabled = loaded && !saving) { save() }
         AdminMessage(msg, error)
+    }
+}
+
+// ------------------------------------------------------------------ crypto orders
+
+@Composable
+fun AdminCryptoOrders(activity: MainActivity, onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val base = adminBase(); val token = adminToken(activity)
+    var orders by remember { mutableStateOf<List<CryptoOrder>>(emptyList()) }
+    var msg by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf(false) }
+
+    fun load() {
+        scope.launch {
+            try { orders = withContext(Dispatchers.IO) { AdminApi.listCryptoOrders(base, token, "") }; msg = null }
+            catch (e: Exception) { msg = e.message; error = true }
+        }
+    }
+    LaunchedEffect(Unit) { load() }
+
+    fun decide(id: String, action: String) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { AdminApi.decideCryptoOrder(base, token, id, action) }
+                msg = if (action == "approve") "تأیید شد و پرو فعال شد." else "رد شد."; error = false
+                load()
+            } catch (e: Exception) { msg = e.message; error = true }
+        }
+    }
+
+    AdminSectionScaffold("سفارش‌های ارز دیجیتال", onBack) {
+        Text(
+            "کاربرانی که ارز دیجیتال فرستاده‌اند اینجا هستند. کد تراکنش (TxID) را در بلاک‌چین بررسی کن؛ اگر درست بود «تأیید» را بزن تا اشتراکشان فعال شود.",
+            style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary,
+        )
+        AdminMessage(msg, error)
+        if (orders.isEmpty()) Text("سفارشی ثبت نشده است.", style = MaterialTheme.typography.bodyMedium, color = AppColors.TextMuted)
+        orders.forEach { o ->
+            AppCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("@${o.username} • ${o.planTitle}", style = MaterialTheme.typography.titleSmall)
+                        Text("${o.planDays} روز • ${o.asset}".faDigits(), style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted)
+                    }
+                    val color = when (o.status) { "approved" -> AppColors.Connected; "rejected" -> AppColors.Danger; else -> AppColors.Gold }
+                    val label = when (o.status) { "approved" -> "تأییدشده"; "rejected" -> "ردشده"; else -> "در انتظار" }
+                    Text(label, style = MaterialTheme.typography.bodySmall, color = color)
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("TxID:", style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted)
+                Text(o.txid, style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
+                if (o.status == "pending") {
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Box(Modifier.weight(1f)) {
+                            Button(
+                                onClick = { decide(o.id, "approve") },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = AppColors.Connected, contentColor = Color(0xFF05140F)),
+                                shape = RoundedCornerShape(12.dp),
+                            ) { Text("تأیید و فعال‌سازی") }
+                        }
+                        OutlinedButton(onClick = { decide(o.id, "reject") }, shape = RoundedCornerShape(12.dp)) { Text("رد", color = AppColors.Danger) }
+                    }
+                }
+            }
+        }
     }
 }
 

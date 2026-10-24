@@ -68,6 +68,22 @@ data class PaymentSettings(
     val gateway: String,
     val sandbox: Boolean,
     val buyUrl: String,
+    val cryptoEnabled: Boolean = false,
+    val cryptoAsset: String = "",
+    val cryptoAddress: String = "",
+    val cryptoNote: String = "",
+)
+
+data class CryptoOrder(
+    val id: String,
+    val username: String,
+    val email: String,
+    val planTitle: String,
+    val planDays: Int,
+    val asset: String,
+    val txid: String,
+    val status: String,
+    val created: Long,
 )
 
 /**
@@ -247,14 +263,32 @@ object AdminApi {
 
     // ---- payment settings ----
 
-    fun getSettings(base: String, token: String): PaymentSettings {
-        val o = post(base, "/admin/settings", token, JSONObject())
-        return PaymentSettings(o.optString("merchantId"), o.optString("gateway").ifBlank { "zarinpal" }, o.optBoolean("sandbox"), o.optString("buyUrl"))
-    }
+    private fun parseSettings(o: JSONObject) = PaymentSettings(
+        o.optString("merchantId"), o.optString("gateway").ifBlank { "zarinpal" }, o.optBoolean("sandbox"), o.optString("buyUrl"),
+        o.optBoolean("cryptoEnabled"), o.optString("cryptoAsset"), o.optString("cryptoAddress"), o.optString("cryptoNote"),
+    )
+
+    fun getSettings(base: String, token: String): PaymentSettings = parseSettings(post(base, "/admin/settings", token, JSONObject()))
 
     fun saveSettings(base: String, token: String, s: PaymentSettings): PaymentSettings {
         val o = post(base, "/admin/settings", token, JSONObject()
-            .put("merchantId", s.merchantId).put("gateway", s.gateway).put("sandbox", s.sandbox).put("buyUrl", s.buyUrl))
-        return PaymentSettings(o.optString("merchantId"), o.optString("gateway").ifBlank { "zarinpal" }, o.optBoolean("sandbox"), o.optString("buyUrl"))
+            .put("merchantId", s.merchantId).put("gateway", s.gateway).put("sandbox", s.sandbox).put("buyUrl", s.buyUrl)
+            .put("cryptoEnabled", s.cryptoEnabled).put("cryptoAsset", s.cryptoAsset).put("cryptoAddress", s.cryptoAddress).put("cryptoNote", s.cryptoNote))
+        return parseSettings(o)
     }
+
+    // ---- crypto orders ----
+
+    fun listCryptoOrders(base: String, token: String, status: String = ""): List<CryptoOrder> {
+        val q = if (status.isBlank()) "" else "?status=" + java.net.URLEncoder.encode(status, "UTF-8")
+        val arr = get(base, "/admin/crypto-orders$q", token).optJSONArray("orders")
+        return (0 until (arr?.length() ?: 0)).map { i ->
+            val o = arr!!.getJSONObject(i)
+            CryptoOrder(o.optString("id"), o.optString("username"), o.optString("email"), o.optString("planTitle"),
+                o.optInt("planDays"), o.optString("asset"), o.optString("txid"), o.optString("status"), o.optLong("created"))
+        }
+    }
+
+    fun decideCryptoOrder(base: String, token: String, id: String, action: String) =
+        post(base, "/admin/crypto-order", token, JSONObject().put("id", id).put("action", action))
 }

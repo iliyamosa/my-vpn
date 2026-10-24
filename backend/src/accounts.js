@@ -112,6 +112,10 @@ export function initAccountTables(sql) {
   sql.exec(`CREATE TABLE IF NOT EXISTS payments (
     authority TEXT PRIMARY KEY, account_id TEXT, plan_id TEXT, amount INTEGER,
     status TEXT DEFAULT 'pending', ref_id TEXT, created INTEGER, paid_at INTEGER)`);
+  // Crypto payments: the user submits a transaction id, the admin approves it (no bank gateway).
+  sql.exec(`CREATE TABLE IF NOT EXISTS crypto_orders (
+    id TEXT PRIMARY KEY, account_id TEXT, plan_id TEXT, asset TEXT, txid TEXT,
+    status TEXT DEFAULT 'pending', created INTEGER, decided_at INTEGER)`);
   // Older plans tables may lack the numeric amount column; add it once.
   addColumn(sql, "plans", "amount_toman", "INTEGER DEFAULT 0");
 }
@@ -459,6 +463,53 @@ export function redeemPlan(sql, acc, body) {
   sql.exec("UPDATE accounts SET points = points - ? WHERE id = ?", cost, acc.id);
   const until = grantPlan(sql, acc.id, { days: plan.days });
   return { ok: true, proUntil: until, points: points - cost };
+}
+
+// ---------------------------------------------------------------- crypto orders (no bank gateway)
+
+/** The buyer submits a transaction id; it waits for the admin to approve it. */
+export function createCryptoOrder(sql, acc, body) {
+  const plan = one(sql, "SELECT * FROM plans WHERE id = ? AND enabled = 1", String(body.planId || ""));
+  if (!plan) throw new ApiError(404, "پلن پیدا نشد.");
+  const txid = String(body.txid || "").trim().slice(0, 200);
+  if (!txid) throw new ApiError(400, "کد تراکنش (TxID) را وارد کنید.");
+  const asset = kvGet(sql, "crypto_asset", "");
+  const id = newId();
+  sql.exec("INSERT INTO crypto_orders (id, account_id, plan_id, asset, txid, status, created) VALUES (?, ?, ?, ?, ?, 'pending', ?)",
+    id, acc.id, plan.id, asset, txid, Date.now());
+  return { ok: true, id };
+}
+
+export function adminListCryptoOrders(sql, status) {
+  const where = status ? "WHERE o.status = ?" : "";
+  const args = status ? [status] : [];
+  return all(sql, `SELECT o.*, a.username AS username, a.email AS email, p.title AS plan_title, p.days AS plan_days
+    FROM crypto_orders o LEFT JOIN accounts a ON a.id = o.account_id LEFT JOIN plans p ON p.id = o.plan_id
+    ${where} ORDER BY (o.status = 'pending') DESC, o.created DESC LIMIT 200`, ...args)
+    .map((o) => ({
+      id: o.id, accountId: o.account_id, username: o.username || "", email: o.email || "",
+      planId: o.plan_id, planTitle: o.plan_title || "", planDays: Number(o.plan_days || 0),
+      asset: o.asset || "", txid: o.txid || "", status: o.status, created: Number(o.created || 0),
+    }));
+}
+
+export function adminDecideCryptoOrder(sql, body) {
+  const o = one(sql, "SELECT * FROM crypto_orders WHERE id = ?", String(body.id || ""));
+  if (!o) throw new ApiError(404, "سفارش پیدا نشد.");
+  if (o.status !== "pending") return { ok: true, already: true };
+  const action = String(body.action || "");
+  if (action === "approve") {
+    const plan = one(sql, "SELECT * FROM plans WHERE id = ?", o.plan_id);
+    if (!plan) throw new ApiError(404, "پلن این سفارش پیدا نشد.");
+    const until = grantPlan(sql, o.account_id, { days: plan.days });
+    sql.exec("UPDATE crypto_orders SET status = 'approved', decided_at = ? WHERE id = ?", Date.now(), o.id);
+    return { ok: true, proUntil: until };
+  }
+  if (action === "reject") {
+    sql.exec("UPDATE crypto_orders SET status = 'rejected', decided_at = ? WHERE id = ?", Date.now(), o.id);
+    return { ok: true };
+  }
+  throw new ApiError(400, "دستور نامعتبر.");
 }
 
 // ---------------------------------------------------------------- missions / points
