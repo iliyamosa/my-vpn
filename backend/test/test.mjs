@@ -159,5 +159,80 @@ assert.equal(r.status, 200);
 r = await call(hub, "GET", "/admin/summary?days=7", undefined, adminToken);
 assert.equal(r.status, 200); assert.ok(r.data.totalDevices >= 1);
 
+// ---- manual card-to-card payment lifecycle ----
+r = await call(hub, "POST", "/admin/settings", { cardEnabled: true, cardNumber: "6037991111112222", cardHolder: "ایلیا موسی" }, adminToken);
+assert.equal(r.status, 200);
+r = await call(hub, "POST", "/admin/plan", { title: "یک‌ماهه پولی", days: 30, pointCost: 0, amountToman: 150000, enabled: true }, adminToken);
+assert.equal(r.status, 200); const payPlan = r.data.id;
+r = await call(hub, "POST", "/auth/register", { email: "pay@mail.com", username: "payer", password: "secret1", deviceId: "device-pay000001" });
+assert.equal(r.status, 200, JSON.stringify(r.data)); const payerTok = r.data.token;
+
+// stage 1: open a 30-minute order; amount + destination card are snapshotted
+r = await call(hub, "POST", "/pay/order/create", { login: "payer", password: "secret1", planId: payPlan, method: "card" });
+assert.equal(r.status, 200, JSON.stringify(r.data));
+const orderId = r.data.orderId, orderToken = r.data.token;
+assert.ok(orderId && orderToken, "order id + token returned");
+assert.equal(r.data.amount, 150000, "amount snapshotted");
+assert.equal(r.data.card.number, "6037991111112222", "destination card returned");
+assert.equal(r.data.status, "AWAITING_PAYMENT");
+r = await call(hub, "POST", "/pay/order/create", { login: "payer", password: "nope", planId: payPlan, method: "card" });
+assert.equal(r.status, 401, "bad credentials rejected at order create");
+
+// status (server-timed countdown)
+r = await call(hub, "GET", `/pay/order/status?id=${orderId}&token=${orderToken}`);
+assert.equal(r.status, 200); assert.equal(r.data.status, "AWAITING_PAYMENT"); assert.ok(r.data.remainingMs > 0);
+
+// stage 4: submit; six digits of the source card are required for card payments
+r = await call(hub, "POST", "/pay/order/submit", { orderId, token: orderToken, trackRef: "TRK123456" });
+assert.equal(r.status, 400, "card submit requires last 6 digits");
+r = await call(hub, "POST", "/pay/order/submit", { orderId, token: "wrong", last6: "112233", trackRef: "x" });
+assert.equal(r.status, 404, "wrong order token rejected");
+r = await call(hub, "POST", "/pay/order/submit", { orderId, token: orderToken, trackRef: "TRK123456", last6: "112233", paidApprox: "14:30" });
+assert.equal(r.status, 200, JSON.stringify(r.data)); assert.equal(r.data.status, "PENDING_REVIEW");
+
+// admin sees it in review with the captured details
+r = await call(hub, "GET", "/admin/crypto-orders?status=pending", undefined, adminToken);
+const ord = r.data.orders.find((o) => o.id === orderId);
+assert.ok(ord, "order appears in review list");
+assert.equal(ord.srcLast6, "112233"); assert.equal(ord.trackRef, "TRK123456"); assert.equal(ord.amount, 150000);
+
+// approve activates pro exactly once
+r = await call(hub, "POST", "/admin/crypto-order", { id: orderId, action: "approve" }, adminToken);
+assert.equal(r.status, 200, JSON.stringify(r.data)); assert.ok(r.data.proUntil > Date.now()); const firstUntil = r.data.proUntil;
+r = await call(hub, "POST", "/admin/crypto-order", { id: orderId, action: "approve" }, adminToken);
+assert.equal(r.status, 200); assert.equal(r.data.already, true, "double approve is a no-op");
+r = await call(hub, "GET", "/me", undefined, payerTok);
+assert.equal(r.data.account.isPro, true, "payer is pro after approval");
+assert.equal(r.data.account.proUntil, firstUntil, "pro not extended twice by a repeated approve");
+
+// expiry is enforced on server time, not the UI timer
+r = await call(hub, "POST", "/pay/order/create", { login: "payer", password: "secret1", planId: payPlan, method: "card" });
+const exId = r.data.orderId, exTok = r.data.token;
+hub.sql.exec("UPDATE crypto_orders SET expires = ? WHERE id = ?", Date.now() - 1000, exId);
+r = await call(hub, "GET", `/pay/order/status?id=${exId}&token=${exTok}`);
+assert.equal(r.data.status, "EXPIRED", "unpaid order expires after the window");
+r = await call(hub, "POST", "/pay/order/submit", { orderId: exId, token: exTok, last6: "112233", trackRef: "x" });
+assert.equal(r.status, 410, "cannot submit an expired order");
+
+// reject records a reason
+r = await call(hub, "POST", "/pay/order/create", { login: "payer", password: "secret1", planId: payPlan, method: "card" });
+const rjId = r.data.orderId, rjTok = r.data.token;
+r = await call(hub, "POST", "/pay/order/submit", { orderId: rjId, token: rjTok, last6: "445566", trackRef: "TRKREJECT" });
+assert.equal(r.status, 200);
+r = await call(hub, "POST", "/admin/crypto-order", { id: rjId, action: "reject", reason: "رسید نامعتبر است" }, adminToken);
+assert.equal(r.status, 200);
+r = await call(hub, "GET", "/admin/crypto-orders?status=rejected", undefined, adminToken);
+const rord = r.data.orders.find((o) => o.id === rjId);
+assert.ok(rord && rord.rejectReason === "رسید نامعتبر است", "reject reason stored");
+
+// audit trail recorded both decisions
+r = await call(hub, "GET", "/admin/audit", undefined, adminToken);
+assert.ok(r.data.logs.some((l) => l.action === "order_approve"), "approve audited");
+assert.ok(r.data.logs.some((l) => l.action === "order_reject"), "reject audited");
+
+// legacy one-step purchase endpoint still works
+r = await call(hub, "POST", "/pay/crypto", { login: "payer", password: "secret1", planId: payPlan, method: "crypto", txid: "0xabc123" });
+assert.equal(r.status, 200, "legacy /pay/crypto still works");
+
 assert.equal(dayOf(Date.UTC(2026, 9, 20, 20, 31)), "2026-10-21");
 console.log("ALL BACKEND TESTS PASSED");

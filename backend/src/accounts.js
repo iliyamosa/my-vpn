@@ -123,6 +123,38 @@ export function initAccountTables(sql) {
   addColumn(sql, "payments", "provider_ref", "TEXT DEFAULT ''");
   // Manual orders can be crypto or card-to-card.
   addColumn(sql, "crypto_orders", "method", "TEXT DEFAULT 'crypto'");
+  // Real payment lifecycle: a server-timed 30-minute window, a snapshot of the amount and
+  // destination card at creation, the buyer's submitted payment details, and the admin decision.
+  addColumn(sql, "crypto_orders", "amount", "INTEGER DEFAULT 0");       // toman snapshot
+  addColumn(sql, "crypto_orders", "currency", "TEXT DEFAULT 'toman'");
+  addColumn(sql, "crypto_orders", "expires", "INTEGER DEFAULT 0");      // server-time deadline
+  addColumn(sql, "crypto_orders", "card_number", "TEXT DEFAULT ''");    // destination card, snapshotted
+  addColumn(sql, "crypto_orders", "card_holder", "TEXT DEFAULT ''");
+  addColumn(sql, "crypto_orders", "src_last6", "TEXT DEFAULT ''");      // last 6 digits of the buyer's card
+  addColumn(sql, "crypto_orders", "track_ref", "TEXT DEFAULT ''");      // bank tracking / reference code
+  addColumn(sql, "crypto_orders", "paid_approx", "TEXT DEFAULT ''");    // buyer-stated payment time
+  addColumn(sql, "crypto_orders", "reject_reason", "TEXT DEFAULT ''");
+  addColumn(sql, "crypto_orders", "decided_by", "TEXT DEFAULT ''");
+  addColumn(sql, "crypto_orders", "token", "TEXT DEFAULT ''");          // capability token for the buyer
+  addColumn(sql, "crypto_orders", "submitted_at", "INTEGER DEFAULT 0");
+  // Optional receipt image for an order, kept small (like avatars); no external storage needed.
+  sql.exec(`CREATE TABLE IF NOT EXISTS crypto_receipts (order_id TEXT PRIMARY KEY, data TEXT, updated INTEGER)`);
+  // Audit trail for sensitive admin actions (payment decisions, settings, roles).
+  sql.exec(`CREATE TABLE IF NOT EXISTS audit_logs (
+    id TEXT PRIMARY KEY, actor TEXT, action TEXT, target TEXT, detail TEXT, created INTEGER)`);
+}
+
+/** Records a sensitive admin action. Never stores secrets, only what was changed. */
+export function audit(sql, actor, action, target, detail) {
+  try {
+    sql.exec("INSERT INTO audit_logs (id, actor, action, target, detail, created) VALUES (?, ?, ?, ?, ?, ?)",
+      newId(), String(actor || "admin").slice(0, 40), String(action || "").slice(0, 60),
+      String(target || "").slice(0, 80), String(detail || "").slice(0, 400), Date.now());
+  } catch (e) { /* audit must never break the main action */ }
+}
+export function adminListAuditLogs(sql, limit = 100) {
+  return all(sql, "SELECT * FROM audit_logs ORDER BY created DESC LIMIT ?", Math.max(1, Math.min(500, Number(limit) || 100)))
+    .map((r) => ({ id: r.id, actor: r.actor, action: r.action, target: r.target, detail: r.detail, created: Number(r.created || 0) }));
 }
 
 /** Adds a column if it isn't already there (SQLite has no IF NOT EXISTS for columns). */
@@ -475,7 +507,96 @@ export function redeemPlan(sql, acc, body) {
 
 // ---------------------------------------------------------------- crypto orders (no bank gateway)
 
-/** The buyer submits a reference (crypto TxID or card tracking code); it waits for admin approval. */
+// Order lifecycle states:
+//   AWAITING_PAYMENT -> PENDING_REVIEW -> APPROVED | REJECTED
+//   AWAITING_PAYMENT -> EXPIRED (after the 30-minute server window, if nothing was submitted)
+// Legacy rows use lowercase 'pending'/'approved'/'rejected'; both are accepted everywhere.
+const ORDER_WINDOW_MS = 30 * 60 * 1000;
+const RECEIPT_MAX_CHARS = AVATAR_MAX_CHARS;
+const REVIEW_STATES = ["PENDING_REVIEW", "pending"];
+const APPROVED_STATES = ["APPROVED", "approved"];
+const REJECTED_STATES = ["REJECTED", "rejected"];
+
+function orderId() {
+  return [...crypto.getRandomValues(new Uint8Array(12))].map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+/** Moves an un-paid order to EXPIRED once its server-time window passes. Returns the effective status. */
+function lazyExpire(sql, o) {
+  if (o.status === "AWAITING_PAYMENT" && Number(o.expires || 0) > 0 && Date.now() > Number(o.expires)) {
+    sql.exec("UPDATE crypto_orders SET status = 'EXPIRED' WHERE id = ? AND status = 'AWAITING_PAYMENT'", o.id);
+    return "EXPIRED";
+  }
+  return o.status;
+}
+
+/**
+ * Stage 1 — create an order and open the 30-minute payment window. Snapshots the amount and the
+ * destination card now, so a later change to the admin's card never rewrites an old order.
+ */
+export function createOrder(sql, acc, opts) {
+  const plan = one(sql, "SELECT * FROM plans WHERE id = ? AND enabled = 1", String(opts.planId || ""));
+  if (!plan) throw new ApiError(404, "پلن پیدا نشد.");
+  const method = opts.method === "card" ? "card" : "crypto";
+  const id = orderId();
+  const token = randomToken();
+  const now = Date.now();
+  const expires = now + ORDER_WINDOW_MS;
+  const amount = Math.max(0, Math.trunc(Number(plan.amount_toman || 0)));
+  sql.exec(
+    `INSERT INTO crypto_orders (id, account_id, plan_id, asset, txid, status, created, method,
+       amount, currency, expires, card_number, card_holder, token)
+     VALUES (?, ?, ?, ?, '', 'AWAITING_PAYMENT', ?, ?, ?, 'toman', ?, ?, ?, ?)`,
+    id, acc.id, plan.id, method === "card" ? "کارت به کارت" : "کریپتو", now, method,
+    amount, expires, method === "card" ? String(opts.cardNumber || "").slice(0, 40) : "",
+    method === "card" ? String(opts.cardHolder || "").slice(0, 80) : "", token,
+  );
+  return { ok: true, orderId: id, token, amount, currency: "toman", method, status: "AWAITING_PAYMENT", expiresAt: expires, planDays: Number(plan.days || 0) };
+}
+
+/** Returns the live, server-timed status of an order (used for the countdown and to detect expiry). */
+export function orderStatus(sql, id, token) {
+  const o = one(sql, "SELECT * FROM crypto_orders WHERE id = ?", String(id || ""));
+  if (!o || !token || o.token !== String(token)) throw new ApiError(404, "سفارش پیدا نشد.");
+  const status = lazyExpire(sql, o);
+  return {
+    status, method: o.method || "crypto", amount: Number(o.amount || 0), currency: o.currency || "toman",
+    expiresAt: Number(o.expires || 0), remainingMs: Math.max(0, Number(o.expires || 0) - Date.now()),
+  };
+}
+
+/**
+ * Stage 4 — the buyer submits what they actually paid. Only works inside the window; once the
+ * window has passed the order is EXPIRED and the buyer must start a new one. Six digits of the
+ * source card alone are NOT proof — the admin still reviews the tracking code / receipt.
+ */
+export function submitOrder(sql, body) {
+  const o = one(sql, "SELECT * FROM crypto_orders WHERE id = ?", String(body.orderId || ""));
+  if (!o || !body.token || o.token !== String(body.token)) throw new ApiError(404, "سفارش پیدا نشد.");
+  const status = lazyExpire(sql, o);
+  if (status === "EXPIRED") throw new ApiError(410, "مهلت ۳۰ دقیقه‌ای این سفارش تمام شده است. یک سفارش جدید بسازید.");
+  if (status !== "AWAITING_PAYMENT") throw new ApiError(400, "این سفارش قبلاً ثبت شده است.");
+  const method = o.method || "crypto";
+  const trackRef = String(body.trackRef || body.txid || "").trim().slice(0, 200);
+  if (!trackRef) throw new ApiError(400, method === "card" ? "کد پیگیری واریز را وارد کنید." : "کد تراکنش (TxID) را وارد کنید.");
+  const last6 = String(body.last6 || "").replace(/\D/g, "").slice(0, 6);
+  if (method === "card" && last6.length !== 6) throw new ApiError(400, "۶ رقم آخر کارت مبدأ را وارد کنید.");
+  const paidApprox = String(body.paidApprox || "").trim().slice(0, 40);
+  const receipt = String(body.receipt || "");
+  if (receipt) {
+    if (!receipt.startsWith("data:image/")) throw new ApiError(400, "تصویر رسید نامعتبر است.");
+    if (receipt.length > RECEIPT_MAX_CHARS) throw new ApiError(413, "تصویر رسید خیلی بزرگ است.");
+    sql.exec("INSERT INTO crypto_receipts (order_id, data, updated) VALUES (?, ?, ?) ON CONFLICT(order_id) DO UPDATE SET data = excluded.data, updated = excluded.updated",
+      o.id, receipt, Date.now());
+  }
+  sql.exec("UPDATE crypto_orders SET status = 'PENDING_REVIEW', txid = ?, src_last6 = ?, track_ref = ?, paid_approx = ?, submitted_at = ? WHERE id = ? AND status = 'AWAITING_PAYMENT'",
+    trackRef, last6, trackRef, paidApprox, Date.now(), o.id);
+  return { ok: true, status: "PENDING_REVIEW" };
+}
+
+/**
+ * Legacy single-step order (kept so the old purchase page keeps working): creates a review-ready
+ * order directly. Still snapshots the amount and opens the normal window.
+ */
 export function createManualOrder(sql, acc, body) {
   const plan = one(sql, "SELECT * FROM plans WHERE id = ? AND enabled = 1", String(body.planId || ""));
   if (!plan) throw new ApiError(404, "پلن پیدا نشد.");
@@ -483,41 +604,70 @@ export function createManualOrder(sql, acc, body) {
   const ref = String(body.txid || body.reference || "").trim().slice(0, 200);
   if (!ref) throw new ApiError(400, method === "card" ? "کد پیگیری واریز را وارد کنید." : "کد تراکنش (TxID) را وارد کنید.");
   const label = String(body.label || "").trim().slice(0, 60) || (method === "card" ? "کارت به کارت" : "کریپتو");
-  const id = newId();
-  sql.exec("INSERT INTO crypto_orders (id, account_id, plan_id, asset, txid, status, created, method) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)",
-    id, acc.id, plan.id, label, ref, Date.now(), method);
+  const id = orderId();
+  const now = Date.now();
+  const amount = Math.max(0, Math.trunc(Number(plan.amount_toman || 0)));
+  sql.exec(
+    `INSERT INTO crypto_orders (id, account_id, plan_id, asset, txid, status, created, method, amount, currency, track_ref, submitted_at)
+     VALUES (?, ?, ?, ?, ?, 'PENDING_REVIEW', ?, ?, ?, 'toman', ?, ?)`,
+    id, acc.id, plan.id, label, ref, now, method, amount, ref, now);
   return { ok: true, id };
 }
 // Back-compat alias.
 export const createCryptoOrder = createManualOrder;
 
 export function adminListCryptoOrders(sql, status) {
-  const where = status ? "WHERE o.status = ?" : "";
-  const args = status ? [status] : [];
-  return all(sql, `SELECT o.*, a.username AS username, a.email AS email, p.title AS plan_title, p.days AS plan_days
+  // Sweep any stale un-paid orders to EXPIRED first, so the list is accurate.
+  sql.exec("UPDATE crypto_orders SET status = 'EXPIRED' WHERE status = 'AWAITING_PAYMENT' AND expires > 0 AND expires < ?", Date.now());
+  let where = "", args = [];
+  if (status === "pending" || status === "PENDING_REVIEW") { where = "WHERE o.status IN ('PENDING_REVIEW','pending')"; }
+  else if (status === "approved" || status === "APPROVED") { where = "WHERE o.status IN ('APPROVED','approved')"; }
+  else if (status === "rejected" || status === "REJECTED") { where = "WHERE o.status IN ('REJECTED','rejected')"; }
+  else if (status) { where = "WHERE o.status = ?"; args = [status]; }
+  const rows = all(sql, `SELECT o.*, a.username AS username, a.email AS email, p.title AS plan_title, p.days AS plan_days
     FROM crypto_orders o LEFT JOIN accounts a ON a.id = o.account_id LEFT JOIN plans p ON p.id = o.plan_id
-    ${where} ORDER BY (o.status = 'pending') DESC, o.created DESC LIMIT 200`, ...args)
-    .map((o) => ({
-      id: o.id, accountId: o.account_id, username: o.username || "", email: o.email || "",
-      planId: o.plan_id, planTitle: o.plan_title || "", planDays: Number(o.plan_days || 0),
-      asset: o.asset || "", txid: o.txid || "", method: o.method || "crypto", status: o.status, created: Number(o.created || 0),
-    }));
+    ${where} ORDER BY (o.status IN ('PENDING_REVIEW','pending')) DESC, o.created DESC LIMIT 200`, ...args);
+  return rows.map((o) => ({
+    id: o.id, accountId: o.account_id, username: o.username || "", email: o.email || "",
+    planId: o.plan_id, planTitle: o.plan_title || "", planDays: Number(o.plan_days || 0),
+    asset: o.asset || "", txid: o.txid || "", method: o.method || "crypto", status: o.status,
+    amount: Number(o.amount || 0), currency: o.currency || "toman",
+    cardNumber: o.card_number || "", cardHolder: o.card_holder || "",
+    srcLast6: o.src_last6 || "", trackRef: o.track_ref || "", paidApprox: o.paid_approx || "",
+    rejectReason: o.reject_reason || "", decidedBy: o.decided_by || "",
+    hasReceipt: !!one(sql, "SELECT 1 FROM crypto_receipts WHERE order_id = ?", o.id),
+    created: Number(o.created || 0), expires: Number(o.expires || 0), submittedAt: Number(o.submitted_at || 0),
+  }));
+}
+
+export function getOrderReceipt(sql, id) {
+  const r = one(sql, "SELECT data FROM crypto_receipts WHERE order_id = ?", String(id));
+  return r ? r.data : null;
 }
 
 export function adminDecideCryptoOrder(sql, body) {
   const o = one(sql, "SELECT * FROM crypto_orders WHERE id = ?", String(body.id || ""));
   if (!o) throw new ApiError(404, "سفارش پیدا نشد.");
-  if (o.status !== "pending") return { ok: true, already: true };
+  // Already decided (or not yet reviewable): never grant twice.
+  if (APPROVED_STATES.includes(o.status) || REJECTED_STATES.includes(o.status)) return { ok: true, already: true };
   const action = String(body.action || "");
+  const actor = String(body.actor || "admin").slice(0, 40);
   if (action === "approve") {
+    if (!REVIEW_STATES.includes(o.status)) throw new ApiError(400, "این سفارش هنوز در مرحله‌ی بررسی نیست.");
     const plan = one(sql, "SELECT * FROM plans WHERE id = ?", o.plan_id);
     if (!plan) throw new ApiError(404, "پلن این سفارش پیدا نشد.");
+    // Atomic single activation: only flip if still in review; grant exactly once.
+    const res = sql.exec("UPDATE crypto_orders SET status = 'APPROVED', decided_at = ?, decided_by = ? WHERE id = ? AND status IN ('PENDING_REVIEW','pending')",
+      Date.now(), actor, o.id);
     const until = grantPlan(sql, o.account_id, { days: plan.days });
-    sql.exec("UPDATE crypto_orders SET status = 'approved', decided_at = ? WHERE id = ?", Date.now(), o.id);
+    audit(sql, actor, "order_approve", o.id, `acct=${o.account_id} plan=${o.plan_id} amount=${o.amount || 0}`);
     return { ok: true, proUntil: until };
   }
   if (action === "reject") {
-    sql.exec("UPDATE crypto_orders SET status = 'rejected', decided_at = ? WHERE id = ?", Date.now(), o.id);
+    const reason = String(body.reason || "").trim().slice(0, 200);
+    sql.exec("UPDATE crypto_orders SET status = 'REJECTED', decided_at = ?, decided_by = ?, reject_reason = ? WHERE id = ?",
+      Date.now(), actor, reason, o.id);
+    audit(sql, actor, "order_reject", o.id, `acct=${o.account_id} reason=${reason}`);
     return { ok: true };
   }
   throw new ApiError(400, "دستور نامعتبر.");

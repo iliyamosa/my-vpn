@@ -139,66 +139,105 @@ function buildBuyPage(origin, plans, crypto, card) {
       <span class="nm"><b>${esc(p.title)}</b><small>${faNum(p.days)} روز</small></span>
       <span class="pr">${esc(p.price || (faNum(p.amountToman.toLocaleString("en-US")) + " تومان"))}</span>
     </div>`).join("");
-  const addrRows = (crypto && crypto.addresses || []).map((a) => `
-      ${a.label ? `<div style="font-size:12px;color:var(--mute);text-align:right;margin-top:8px">${esc(a.label)}</div>` : ``}
-      <div class="addr" onclick="cp(this)" title="برای کپی ضربه بزنید">${esc(a.address)}</div>`).join("");
-  const cryptoBox = crypto && crypto.enabled ? `
-    <div class="cbox">
-      <div class="ctitle">پرداخت با ارز دیجیتال</div>
-      <p style="text-align:right">مبلغ پلن را به یکی از آدرس‌های زیر بفرستید، سپس کد تراکنش (TxID) را وارد و ثبت کنید. بعد از بررسی، اشتراک فعال می‌شود.</p>
-      ${addrRows}
-      ${crypto.note ? `<p style="text-align:right">${esc(crypto.note)}</p>` : ``}
-      <label>کد تراکنش (TxID)</label><input id="ctx" dir="ltr" placeholder="hash تراکنش">
-      <button class="btn" id="cgo" onclick="payM('crypto')">ثبت پرداخت کریپتو</button>
-    </div>` : ``;
-  const cardBox = card && card.enabled ? `
-    <div class="cbox">
-      <div class="ctitle" style="color:#f3cf7a">پرداخت کارت‌به‌کارت</div>
-      <p style="text-align:right">مبلغ پلن را به کارت زیر واریز کنید، سپس کد پیگیری واریز را وارد و ثبت کنید. بعد از بررسی، اشتراک فعال می‌شود.</p>
-      <div class="addr" onclick="cp(this)" title="برای کپی ضربه بزنید">${esc(card.number)}</div>
-      ${card.holder ? `<div style="text-align:center;font-size:14px;margin:6px 0">${esc(card.holder)}</div>` : ``}
-      ${card.note ? `<p style="text-align:right">${esc(card.note)}</p>` : ``}
-      <label>کد پیگیری واریز</label><input id="ktx" dir="ltr" placeholder="کد رهگیری/پیگیری">
-      <button class="btn" id="kgo" style="background:linear-gradient(90deg,#f3cf7a,#e0a92e);color:#1f1500" onclick="payM('card')">ثبت پرداخت کارت</button>
-    </div>` : ``;
+  const methodButtons = `
+    ${card && card.enabled ? `<button class="btn" id="mcard" style="background:linear-gradient(90deg,#f3cf7a,#e0a92e);color:#1f1500" onclick="startOrder('card')">کارت‌به‌کارت</button>` : ``}
+    ${crypto && crypto.enabled ? `<button class="btn" id="mcrypto" onclick="startOrder('crypto')">پرداخت با ارز دیجیتال</button>` : ``}`;
   let body;
   if (!plans.length) {
     body = `<p style="margin-top:20px">در حال حاضر پلنی برای خرید آنلاین تنظیم نشده است. لطفاً بعداً دوباره سر بزنید یا با پشتیبانی تماس بگیرید.</p>`;
-  } else if (!cryptoBox && !cardBox) {
+  } else if (!(card && card.enabled) && !(crypto && crypto.enabled)) {
     body = `<div class="plans">${planCards}</div><p style="margin-top:16px">روش پرداختی هنوز توسط مدیر فعال نشده است.</p>`;
   } else {
     body = `<div class="plans">${planCards}</div>
        <label>نام کاربری یا ایمیل</label><input id="login" autocomplete="username" dir="ltr">
        <label>رمز عبور</label><input id="pass" type="password" autocomplete="current-password" dir="ltr">
-       ${cryptoBox}
-       ${cardBox}
+       <div style="height:10px"></div>
+       ${methodButtons}
        <div class="err" id="err"></div>`;
   }
   return `<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>خرید اشتراک — FAIROS VPN</title>${PAGE_CSS}</head><body><div class="wrap"><div class="card" id="card">
+<div id="stage1">
 <p class="logo">FAIROS<small> VPN</small></p>
 <h1>خرید اشتراک پرو</h1>
-<p>با نام کاربری و رمز حساب خودتان وارد شوید؛ بعد از واریز و ثبت، اشتراک پس از تأیید فعال می‌شود.</p>
+<p>یک پلن را انتخاب کنید، با حساب خودتان وارد شوید و روش پرداخت را بزنید. برای واریز ۳۰ دقیقه وقت دارید و اشتراک پس از تأیید مدیر فعال می‌شود.</p>
 ${body}
 <div class="foot">FAIROS VPN</div>
+</div>
+<div id="stage2" style="display:none"></div>
 </div></div>
 <script>
 let sel=document.querySelector(".plan.sel")?.dataset.id||"";
+let order=null,timer=null;
 function pick(el){document.querySelectorAll(".plan").forEach(p=>p.classList.remove("sel"));el.classList.add("sel");sel=el.dataset.id;}
 function creds(){const l=document.getElementById("login").value.trim();const p=document.getElementById("pass").value;const e=document.getElementById("err");e.textContent="";if(!l||!p){e.textContent="نام کاربری و رمز را وارد کنید.";return null;}if(!sel){e.textContent="یک پلن انتخاب کنید.";return null;}return {login:l,password:p,planId:sel};}
-function cp(el){try{navigator.clipboard.writeText(el.textContent.trim());el.style.borderStyle="solid";}catch(e){}}
-async function payM(method){
+function cp(t){try{navigator.clipboard.writeText(String(t).trim());}catch(e){}}
+function fmtToman(n){try{return Number(n).toLocaleString("en-US")+" تومان";}catch(e){return n+" تومان";}}
+function mmss(ms){const s=Math.max(0,Math.floor(ms/1000));return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");}
+async function startOrder(method){
   const c=creds();if(!c)return;const err=document.getElementById("err");
-  const ref=(method==='card'?document.getElementById("ktx"):document.getElementById("ctx")).value.trim();
-  if(!ref){err.textContent=(method==='card'?"کد پیگیری واریز را وارد کنید.":"کد تراکنش (TxID) را وارد کنید.");return;}
-  const btn=document.getElementById(method==='card'?"kgo":"cgo");btn.disabled=true;btn.textContent="در حال ثبت…";
+  const btn=document.getElementById(method==='card'?"mcard":"mcrypto");if(btn){btn.disabled=true;btn.textContent="در حال ساخت سفارش…";}
   try{
-    const r=await fetch("/pay/crypto",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...c,method,txid:ref})});
+    const r=await fetch("/pay/order/create",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...c,method})});
     const d=await r.json();
-    if(d.ok){document.getElementById("card").innerHTML='<p class="logo">FAIROS<small> VPN</small></p><div class="badge" style="border-color:#2fe3b8;color:#2fe3b8">✓</div><h1>ثبت شد</h1><p>پرداخت شما ثبت شد. پس از بررسی و تأیید توسط مدیر، اشتراک پرو روی حسابتان فعال می‌شود.</p>';return;}
-    err.textContent=d.error||"خطا در ثبت پرداخت.";
-  }catch(e){err.textContent="ارتباط با سرور برقرار نشد.";}
-  btn.disabled=false;btn.textContent=(method==='card'?"ثبت پرداخت کارت":"ثبت پرداخت کریپتو");
+    if(!r.ok||!d.ok){err.textContent=d.error||"خطا در ساخت سفارش.";if(btn){btn.disabled=false;btn.textContent=(method==='card'?"کارت‌به‌کارت":"پرداخت با ارز دیجیتال");}return;}
+    order=d;showStage2();
+  }catch(e){err.textContent="ارتباط با سرور برقرار نشد.";if(btn){btn.disabled=false;btn.textContent=(method==='card'?"کارت‌به‌کارت":"پرداخت با ارز دیجیتال");}}
+}
+function showStage2(){
+  document.getElementById("stage1").style.display="none";
+  const s=document.getElementById("stage2");s.style.display="block";
+  const isCard=order.method==='card';
+  let dest="";
+  if(isCard&&order.card){dest='<div class="addr" onclick="cp(\\''+order.card.number+'\\')" title="برای کپی ضربه بزنید">'+order.card.number+'</div>'+(order.card.holder?'<div style="text-align:center;font-size:14px;margin:6px 0">'+order.card.holder+'</div>':'')+(order.card.note?'<p style="text-align:right">'+order.card.note+'</p>':'');}
+  if(!isCard&&order.crypto){dest=(order.crypto.addresses||[]).map(function(a){return (a.label?'<div style="font-size:12px;color:var(--mute);text-align:right;margin-top:8px">'+a.label+'</div>':'')+'<div class="addr" onclick="cp(\\''+a.address+'\\')" title="برای کپی ضربه بزنید">'+a.address+'</div>';}).join('')+(order.crypto.note?'<p style="text-align:right">'+order.crypto.note+'</p>':'');}
+  const last6Field=isCard?'<label>۶ رقم آخر کارت مبدأ</label><input id="last6" dir="ltr" inputmode="numeric" maxlength="6" placeholder="------">':'';
+  s.innerHTML='<p class="logo">FAIROS<small> VPN</small></p>'
+    +'<h1>'+(isCard?'واریز کارت‌به‌کارت':'پرداخت ارز دیجیتال')+'</h1>'
+    +'<div class="cbox"><div style="text-align:center;font-size:13px;color:var(--mute)">مبلغ قابل پرداخت</div><div style="text-align:center;font-size:20px;font-weight:bold;margin:4px 0">'+fmtToman(order.amount)+'</div>'
+    +'<div style="text-align:center;margin:8px 0">مهلت پرداخت: <b id="cd" style="color:#f3cf7a">--:--</b></div>'+dest+'</div>'
+    +'<div class="cbox"><p style="text-align:right">بعد از واریز، اطلاعات زیر را وارد و ثبت کنید:</p>'
+    +last6Field
+    +'<label>'+(isCard?'کد پیگیری/رهگیری واریز':'کد تراکنش (TxID)')+'</label><input id="trackRef" dir="ltr" placeholder="'+(isCard?'کد رهگیری':'hash تراکنش')+'">'
+    +'<label>زمان تقریبی واریز (اختیاری)</label><input id="paidApprox" dir="ltr" placeholder="مثلاً 14:30">'
+    +'<label>تصویر رسید (اختیاری)</label><input id="receipt" type="file" accept="image/*">'
+    +'<button class="btn" id="sgo" onclick="submitOrder()">ثبت پرداخت</button></div>'
+    +'<div class="err" id="err2"></div>'
+    +'<div class="foot">شماره سفارش: '+order.orderId+'</div>';
+  tick();timer=setInterval(tick,1000);
+}
+async function tick(){
+  if(!order)return;
+  try{
+    const r=await fetch("/pay/order/status?id="+order.orderId+"&token="+encodeURIComponent(order.token));
+    const d=await r.json();
+    const cd=document.getElementById("cd");
+    if(d.status==="EXPIRED"){clearInterval(timer);if(cd)cd.textContent="منقضی شد";expired();return;}
+    if(cd)cd.textContent=mmss(d.remainingMs);
+  }catch(e){}
+}
+function expired(){
+  const s=document.getElementById("stage2");
+  s.innerHTML='<p class="logo">FAIROS<small> VPN</small></p><div class="badge" style="border-color:#ff5c7a;color:#ff5c7a">!</div><h1>مهلت تمام شد</h1><p>مهلت ۳۰ دقیقه‌ای این سفارش به پایان رسید و دیگر فعال نیست. برای خرید دوباره یک سفارش جدید بسازید.</p><button class="btn" onclick="location.reload()">سفارش جدید</button>';
+}
+async function submitOrder(){
+  const err=document.getElementById("err2");err.textContent="";
+  const isCard=order.method==='card';
+  const trackRef=document.getElementById("trackRef").value.trim();
+  if(!trackRef){err.textContent=(isCard?"کد پیگیری را وارد کنید.":"کد تراکنش را وارد کنید.");return;}
+  const last6=isCard?(document.getElementById("last6").value.replace(/\\D/g,"")):"";
+  if(isCard&&last6.length!==6){err.textContent="۶ رقم آخر کارت مبدأ را کامل وارد کنید.";return;}
+  const paidApprox=document.getElementById("paidApprox").value.trim();
+  const btn=document.getElementById("sgo");btn.disabled=true;btn.textContent="در حال ثبت…";
+  let receipt="";
+  const f=document.getElementById("receipt").files[0];
+  if(f){if(f.size>400000){err.textContent="تصویر رسید باید کمتر از ۴۰۰ کیلوبایت باشد.";btn.disabled=false;btn.textContent="ثبت پرداخت";return;}receipt=await new Promise(function(res){const rd=new FileReader();rd.onload=function(){res(rd.result);};rd.onerror=function(){res("");};rd.readAsDataURL(f);});}
+  try{
+    const r=await fetch("/pay/order/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({orderId:order.orderId,token:order.token,trackRef:trackRef,last6:last6,paidApprox:paidApprox,receipt:receipt})});
+    const d=await r.json();
+    if(r.ok&&d.ok){clearInterval(timer);document.getElementById("stage2").innerHTML='<p class="logo">FAIROS<small> VPN</small></p><div class="badge" style="border-color:#2fe3b8;color:#2fe3b8">✓</div><h1>ثبت شد</h1><p>اطلاعات پرداخت شما ثبت شد و در صف بررسی مدیر است. پس از تأیید، اشتراک پرو روی حسابتان فعال می‌شود.</p>';return;}
+    err.textContent=d.error||"خطا در ثبت پرداخت.";btn.disabled=false;btn.textContent="ثبت پرداخت";
+  }catch(e){err.textContent="ارتباط با سرور برقرار نشد.";btn.disabled=false;btn.textContent="ثبت پرداخت";}
 }
 </script></body></html>`;
 }
@@ -250,7 +289,7 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
-    if (path === "/") return json({ ok: true, service: "fairosvpn", build: "20261024-manual2" });
+    if (path === "/") return json({ ok: true, service: "fairosvpn", build: "20261026-paylifecycle" });
     // The purchase website is served straight from the Worker.
     if (path === "/buy" || path === "/pay/callback") {
       const stub0 = env.HUB.get(env.HUB.idFromName("main"));
@@ -394,14 +433,28 @@ export class Hub {
         case "/buy": return this.buyPage(url.origin);
         case "/pay/start": return json(await this.payStart(await body(), url.origin));
         case "/pay/crypto": return json(await this.payCrypto(await body()));
+        // Two-stage manual payment: open a 30-minute order, then submit what was paid.
+        case "/pay/order/create": return json(await this.payOrderCreate(await body()));
+        case "/pay/order/submit": return json(A.submitOrder(sql, await body()));
+        case "/pay/order/status": return json(A.orderStatus(sql, qp.get("id") || "", qp.get("token") || ""));
         case "/pay/beyounger": return json(await this.payBeyounger(await body(), url.origin));
         case "/pay/beyounger-webhook": return this.beyWebhook(request);
         case "/pay/beyounger-return": return this.beyReturn(url);
         case "/pay/callback": return this.payCallback(request, url);
 
-        // ---- crypto orders (admin review)
+        // ---- crypto / card orders (admin review)
         case "/admin/crypto-orders": await admin(); return json({ orders: A.adminListCryptoOrders(sql, qp.get("status") || "") });
-        case "/admin/crypto-order": await admin(); return json(A.adminDecideCryptoOrder(sql, await body()));
+        case "/admin/crypto-order": await admin(); { const b = await body(); b.actor = (this.env.ADMIN_USER || "admin"); return json(A.adminDecideCryptoOrder(sql, b)); }
+        case "/admin/crypto-order/receipt": {
+          await admin();
+          const data = A.getOrderReceipt(sql, qp.get("id") || "");
+          if (!data) return json({ error: "not found" }, 404);
+          const m = /^data:(image\/[a-z+.-]+);base64,(.*)$/i.exec(data);
+          if (!m) return json({ error: "bad" }, 500);
+          const bin = Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0));
+          return new Response(bin, { headers: { "Content-Type": m[1], "Cache-Control": "no-store", ...CORS } });
+        }
+        case "/admin/audit": await admin(); return json({ logs: A.adminListAuditLogs(sql, Number(qp.get("limit") || 100)) });
 
         default: return json({ error: "not found" }, 404);
       }
@@ -620,10 +673,43 @@ export class Hub {
     return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", ...CORS } });
   }
 
-  /** Public: records a crypto payment the user claims to have made (pending admin review). */
+  /** Public: records a crypto payment the user claims to have made (pending admin review). Legacy one-step. */
   async payCrypto(body) {
     const acc = await A.findForPurchase(this.sql, body); // throws 401 on bad credentials
     return A.createCryptoOrder(this.sql, acc, body);
+  }
+
+  /** Reads the admin's crypto addresses as [{label,address}] (legacy single-address supported). */
+  cryptoAddresses() {
+    let addresses = A.kvGet(this.sql, "crypto_addresses", "").split("\n").map((s) => s.trim()).filter(Boolean).map((ln) => {
+      const i = ln.indexOf("=");
+      return i > 0 ? { label: ln.slice(0, i).trim(), address: ln.slice(i + 1).trim() } : { label: "", address: ln };
+    }).filter((a) => a.address);
+    if (!addresses.length) {
+      const legacy = A.kvGet(this.sql, "crypto_address", "");
+      if (legacy) addresses = [{ label: A.kvGet(this.sql, "crypto_asset", ""), address: legacy }];
+    }
+    return addresses;
+  }
+
+  /** Stage 1: verify the buyer and open a 30-minute order, returning the destination to pay. */
+  async payOrderCreate(body) {
+    const acc = await A.findForPurchase(this.sql, body); // throws 401 on bad credentials
+    const method = body.method === "card" ? "card" : "crypto";
+    if (method === "card") {
+      const cardEnabled = A.kvGet(this.sql, "card_enabled", "0") === "1";
+      const cardNumber = A.kvGet(this.sql, "card_number", "");
+      if (!cardEnabled || !cardNumber) throw new A.ApiError(400, "پرداخت کارت‌به‌کارت فعال نیست.");
+      const out = A.createOrder(this.sql, acc, { planId: body.planId, method, cardNumber, cardHolder: A.kvGet(this.sql, "card_holder", "") });
+      out.card = { number: cardNumber, holder: A.kvGet(this.sql, "card_holder", ""), note: A.kvGet(this.sql, "card_note", "") };
+      return out;
+    }
+    const addresses = this.cryptoAddresses();
+    const cryptoEnabled = A.kvGet(this.sql, "crypto_enabled", "0") === "1";
+    if (!cryptoEnabled || !addresses.length) throw new A.ApiError(400, "پرداخت کریپتو فعال نیست.");
+    const out = A.createOrder(this.sql, acc, { planId: body.planId, method });
+    out.crypto = { addresses, note: A.kvGet(this.sql, "crypto_note", "") };
+    return out;
   }
 
   // ---------- Beyounger hosted crypto checkout (automatic, via webhook) ----------
