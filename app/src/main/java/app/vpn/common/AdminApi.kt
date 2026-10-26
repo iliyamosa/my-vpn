@@ -98,6 +98,14 @@ data class CryptoOrder(
     val method: String,
     val status: String,
     val created: Long,
+    val amount: Long = 0,
+    val srcLast6: String = "",
+    val trackRef: String = "",
+    val paidApprox: String = "",
+    val cardNumber: String = "",
+    val cardHolder: String = "",
+    val rejectReason: String = "",
+    val hasReceipt: Boolean = false,
 )
 
 /**
@@ -301,10 +309,12 @@ object AdminApi {
         return (0 until (arr?.length() ?: 0)).map { i ->
             val o = arr!!.getJSONObject(i)
             CryptoOrder(o.optString("id"), o.optString("username"), o.optString("email"), o.optString("planTitle"),
-                o.optInt("planDays"), o.optString("asset"), o.optString("txid"), o.optString("method").ifBlank { "crypto" }, o.optString("status"), o.optLong("created"))
+                o.optInt("planDays"), o.optString("asset"), o.optString("txid"), o.optString("method").ifBlank { "crypto" }, o.optString("status"), o.optLong("created"),
+                o.optLong("amount"), o.optString("srcLast6"), o.optString("trackRef"), o.optString("paidApprox"),
+                o.optString("cardNumber"), o.optString("cardHolder"), o.optString("rejectReason"), o.optBoolean("hasReceipt"))
         }
     }
 
-    fun decideCryptoOrder(base: String, token: String, id: String, action: String) =
-        post(base, "/admin/crypto-order", token, JSONObject().put("id", id).put("action", action))
+    fun decideCryptoOrder(base: String, token: String, id: String, action: String, reason: String = "") =
+        post(base, "/admin/crypto-order", token, JSONObject().put("id", id).put("action", action).put("reason", reason))
 }

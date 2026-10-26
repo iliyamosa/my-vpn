@@ -22,6 +22,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -669,6 +670,7 @@ fun AdminCryptoOrders(activity: MainActivity, onBack: () -> Unit) {
     var orders by remember { mutableStateOf<List<CryptoOrder>>(emptyList()) }
     var msg by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf(false) }
+    val reasons = remember { mutableStateMapOf<String, String>() }
 
     fun load() {
         scope.launch {
@@ -678,10 +680,10 @@ fun AdminCryptoOrders(activity: MainActivity, onBack: () -> Unit) {
     }
     LaunchedEffect(Unit) { load() }
 
-    fun decide(id: String, action: String) {
+    fun decide(id: String, action: String, reason: String) {
         scope.launch {
             try {
-                withContext(Dispatchers.IO) { AdminApi.decideCryptoOrder(base, token, id, action) }
+                withContext(Dispatchers.IO) { AdminApi.decideCryptoOrder(base, token, id, action, reason) }
                 msg = if (action == "approve") "تأیید شد و پرو فعال شد." else "رد شد."; error = false
                 load()
             } catch (e: Exception) { msg = e.message; error = true }
@@ -696,37 +698,76 @@ fun AdminCryptoOrders(activity: MainActivity, onBack: () -> Unit) {
         AdminMessage(msg, error)
         if (orders.isEmpty()) Text("سفارشی ثبت نشده است.", style = MaterialTheme.typography.bodyMedium, color = AppColors.TextMuted)
         orders.forEach { o ->
+            val pending = o.status == "pending" || o.status == "PENDING_REVIEW"
+            val awaiting = o.status == "AWAITING_PAYMENT"
             AppCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         val methodLabel = if (o.method == "card") "کارت‌به‌کارت" else "کریپتو"
                         Text("@${o.username} • ${o.planTitle}", style = MaterialTheme.typography.titleSmall)
-                        Text("${o.planDays} روز • $methodLabel${if (o.asset.isNotBlank()) " • ${o.asset}" else ""}".faDigits(), style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted)
+                        val amountTxt = if (o.amount > 0) " • ${formatTomanAdmin(o.amount)}" else ""
+                        Text("${o.planDays} روز • $methodLabel$amountTxt".faDigits(), style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted)
                     }
-                    val color = when (o.status) { "approved" -> AppColors.Connected; "rejected" -> AppColors.Danger; else -> AppColors.Gold }
-                    val label = when (o.status) { "approved" -> "تأییدشده"; "rejected" -> "ردشده"; else -> "در انتظار" }
+                    val color = when {
+                        o.status == "approved" || o.status == "APPROVED" -> AppColors.Connected
+                        o.status == "rejected" || o.status == "REJECTED" -> AppColors.Danger
+                        o.status == "EXPIRED" -> AppColors.TextMuted
+                        awaiting -> AppColors.TextSecondary
+                        else -> AppColors.Gold
+                    }
+                    val label = when {
+                        o.status == "approved" || o.status == "APPROVED" -> "تأییدشده"
+                        o.status == "rejected" || o.status == "REJECTED" -> "ردشده"
+                        o.status == "EXPIRED" -> "منقضی"
+                        awaiting -> "منتظر واریز"
+                        else -> "در انتظار بررسی"
+                    }
                     Text(label, style = MaterialTheme.typography.bodySmall, color = color)
                 }
                 Spacer(Modifier.height(8.dp))
-                Text(if (o.method == "card") "کد پیگیری:" else "TxID:", style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted)
-                Text(o.txid, style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
-                if (o.status == "pending") {
+                if (o.method == "card") {
+                    DetailRow("کارت مقصد:", o.cardNumber)
+                    DetailRow("۶ رقم آخر مبدأ:", o.srcLast6)
+                    DetailRow("کد پیگیری:", o.trackRef.ifBlank { o.txid })
+                } else {
+                    DetailRow("TxID:", o.txid)
+                }
+                if (o.paidApprox.isNotBlank()) DetailRow("زمان واریز:", o.paidApprox)
+                if (o.hasReceipt) Text("📎 رسید ضمیمه شده است", style = MaterialTheme.typography.bodySmall, color = AppColors.Primary)
+                if (o.rejectReason.isNotBlank()) DetailRow("دلیل رد:", o.rejectReason)
+                if (pending) {
                     Spacer(Modifier.height(10.dp))
+                    AdminField("دلیل رد (اختیاری)", reasons[o.id] ?: "", { reasons[o.id] = it })
+                    Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Box(Modifier.weight(1f)) {
                             Button(
-                                onClick = { decide(o.id, "approve") },
+                                onClick = { decide(o.id, "approve", "") },
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = ButtonDefaults.buttonColors(containerColor = AppColors.Connected, contentColor = Color(0xFF05140F)),
                                 shape = RoundedCornerShape(12.dp),
                             ) { Text("تأیید و فعال‌سازی") }
                         }
-                        OutlinedButton(onClick = { decide(o.id, "reject") }, shape = RoundedCornerShape(12.dp)) { Text("رد", color = AppColors.Danger) }
+                        OutlinedButton(onClick = { decide(o.id, "reject", reasons[o.id] ?: "") }, shape = RoundedCornerShape(12.dp)) { Text("رد", color = AppColors.Danger) }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun DetailRow(label: String, value: String) {
+    if (value.isBlank()) return
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("$label ", style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted)
+        Text(value, style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
+    }
+}
+
+private fun formatTomanAdmin(toman: Long): String {
+    val s = toman.toString().reversed().chunked(3).joinToString(",").reversed()
+    return "$s تومان"
 }
 
 // ------------------------------------------------------------------ live config
