@@ -1,0 +1,45 @@
+name: Signing fingerprint
+
+# Prints the release signing certificate's SHA-1 / SHA-256 (needed to register the
+# Android OAuth client in Google Cloud for Google Sign-In). The keystore PASSWORD stays
+# a secret; a certificate fingerprint is public information, safe to post.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  fp:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Print fingerprints
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ ! -f signing/release.p12 ]; then
+            echo "No signing/release.p12 in the repo." > fp.md
+            gh issue create --title "Signing fingerprint" --body-file fp.md || true
+            exit 0
+          fi
+          if [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "KEYSTORE_PASSWORD secret is not set." > fp.md
+            gh issue create --title "Signing fingerprint" --body-file fp.md || true
+            exit 0
+          fi
+          keytool -list -v -keystore signing/release.p12 -storetype PKCS12 -storepass "$KEYSTORE_PASSWORD" -alias app > ks.txt 2>&1 \
+            || keytool -list -v -keystore signing/release.p12 -storetype PKCS12 -storepass "$KEYSTORE_PASSWORD" > ks.txt 2>&1 || true
+          {
+            echo "Release signing certificate fingerprints."
+            echo "Give the SHA-1 (and SHA-256) to Google when creating the Android OAuth client."
+            echo
+            echo '```'
+            grep -iE "SHA1:|SHA-1:|SHA256:|SHA-256:" ks.txt || tail -25 ks.txt
+            echo '```'
+          } > fp.md
+          gh issue create --title "Signing fingerprint" --body-file fp.md || true
