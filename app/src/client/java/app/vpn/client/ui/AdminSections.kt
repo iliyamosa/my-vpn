@@ -1,5 +1,6 @@
 package app.vpn.client.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -29,12 +30,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.vpn.client.MainActivity
 import app.vpn.common.AdminAccount
 import app.vpn.common.AdminApi
+import app.vpn.common.AuditLog
 import app.vpn.common.CryptoOrder
 import app.vpn.common.AdminMission
 import app.vpn.common.AdminNotice
@@ -671,6 +676,8 @@ fun AdminCryptoOrders(activity: MainActivity, onBack: () -> Unit) {
     var msg by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf(false) }
     val reasons = remember { mutableStateMapOf<String, String>() }
+    var receiptFor by remember { mutableStateOf<String?>(null) }
+    var receiptBmp by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
 
     fun load() {
         scope.launch {
@@ -686,6 +693,17 @@ fun AdminCryptoOrders(activity: MainActivity, onBack: () -> Unit) {
                 withContext(Dispatchers.IO) { AdminApi.decideCryptoOrder(base, token, id, action, reason) }
                 msg = if (action == "approve") "تأیید شد و پرو فعال شد." else "رد شد."; error = false
                 load()
+            } catch (e: Exception) { msg = e.message; error = true }
+        }
+    }
+
+    fun showReceipt(id: String) {
+        scope.launch {
+            try {
+                val bytes = withContext(Dispatchers.IO) { AdminApi.cryptoReceipt(base, token, id) }
+                receiptBmp = if (bytes != null) withContext(Dispatchers.IO) { android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) } else null
+                receiptFor = id
+                if (receiptBmp == null) { msg = "رسیدی برای این سفارش ثبت نشده است."; error = true }
             } catch (e: Exception) { msg = e.message; error = true }
         }
     }
@@ -733,7 +751,17 @@ fun AdminCryptoOrders(activity: MainActivity, onBack: () -> Unit) {
                     DetailRow("TxID:", o.txid)
                 }
                 if (o.paidApprox.isNotBlank()) DetailRow("زمان واریز:", o.paidApprox)
-                if (o.hasReceipt) Text("📎 رسید ضمیمه شده است", style = MaterialTheme.typography.bodySmall, color = AppColors.Primary)
+                if (o.hasReceipt) {
+                    TextButton(onClick = { showReceipt(o.id) }) { Text("📎 نمایش رسید", color = AppColors.Primary) }
+                    if (receiptFor == o.id && receiptBmp != null) {
+                        Image(
+                            bitmap = receiptBmp!!.asImageBitmap(),
+                            contentDescription = "رسید",
+                            contentScale = ContentScale.FillWidth,
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)),
+                        )
+                    }
+                }
                 if (o.rejectReason.isNotBlank()) DetailRow("دلیل رد:", o.rejectReason)
                 if (pending) {
                     Spacer(Modifier.height(10.dp))
@@ -768,6 +796,54 @@ private fun DetailRow(label: String, value: String) {
 private fun formatTomanAdmin(toman: Long): String {
     val s = toman.toString().reversed().chunked(3).joinToString(",").reversed()
     return "$s تومان"
+}
+
+private fun auditTime(ms: Long): String {
+    if (ms <= 0) return ""
+    return try {
+        java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US).format(java.util.Date(ms))
+    } catch (e: Exception) { "" }
+}
+
+@Composable
+fun AdminAuditLog(activity: MainActivity, onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val base = adminBase(); val token = adminToken(activity)
+    var logs by remember { mutableStateOf<List<AuditLog>>(emptyList()) }
+    var msg by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        scope.launch {
+            try { logs = withContext(Dispatchers.IO) { AdminApi.auditLogs(base, token) }; msg = null }
+            catch (e: Exception) { msg = e.message; error = true }
+        }
+    }
+    AdminSectionScaffold("گزارش رویدادها", onBack) {
+        Text(
+            "تاریخچهٔ کارهای مهم مدیریت (تأیید و رد پرداخت‌ها). هیچ اطلاعات محرمانه‌ای اینجا ذخیره نمی‌شود.",
+            style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary,
+        )
+        AdminMessage(msg, error)
+        if (logs.isEmpty()) Text("هنوز رویدادی ثبت نشده است.", style = MaterialTheme.typography.bodyMedium, color = AppColors.TextMuted)
+        logs.forEach { l ->
+            AppCard {
+                val label = when (l.action) {
+                    "order_approve" -> "تأیید پرداخت"
+                    "order_reject" -> "رد پرداخت"
+                    else -> l.action
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(label, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                    Text(auditTime(l.created), style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted)
+                }
+                if (l.detail.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(l.detail, style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
+                }
+                Text("مدیر: ${l.actor}", style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted)
+            }
+        }
+    }
 }
 
 // ------------------------------------------------------------------ live config

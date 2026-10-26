@@ -44,7 +44,7 @@ import app.vpn.ui.AppColors
 import app.vpn.ui.AppIcon
 import app.vpn.ui.GradientButton
 
-enum class AdminSection { HOME, ACCOUNTS, PRO_SERVERS, PLANS, MISSIONS, NOTICES, PAYMENT, CRYPTO_ORDERS, CONFIG }
+enum class AdminSection { HOME, ACCOUNTS, PRO_SERVERS, PLANS, MISSIONS, NOTICES, PAYMENT, CRYPTO_ORDERS, AUDIT, CONFIG }
 
 /** Resolves the admin session token and backend base for the admin API calls. */
 fun adminToken(activity: MainActivity): String = ClientStore(activity).adminToken
@@ -65,6 +65,7 @@ fun AdminPanel(activity: MainActivity, onExit: () -> Unit) {
         AdminSection.NOTICES -> AdminNotices(activity) { section = AdminSection.HOME }
         AdminSection.PAYMENT -> AdminPayment(activity) { section = AdminSection.HOME }
         AdminSection.CRYPTO_ORDERS -> AdminCryptoOrders(activity) { section = AdminSection.HOME }
+        AdminSection.AUDIT -> AdminAuditLog(activity) { section = AdminSection.HOME }
         AdminSection.CONFIG -> AdminConfig(activity) { section = AdminSection.HOME }
     }
 }
@@ -89,6 +90,7 @@ private fun AdminHome(activity: MainActivity, onExit: () -> Unit, open: (AdminSe
                 AdminMenuRow(R.drawable.ic_bell, "اعلان‌ها", "ارسال پیام به کاربران") { open(AdminSection.NOTICES) }
                 AdminMenuRow(R.drawable.ic_wallet, "روش‌های پرداخت", "کریپتو (TON و…) و کارت‌به‌کارت") { open(AdminSection.PAYMENT) }
                 AdminMenuRow(R.drawable.ic_gift, "تأیید پرداخت‌ها", "تأیید واریزی‌های کریپتو و کارت کاربران") { open(AdminSection.CRYPTO_ORDERS) }
+                AdminMenuRow(R.drawable.ic_info, "گزارش رویدادها", "تاریخچهٔ تأیید/رد پرداخت‌ها و تغییرات") { open(AdminSection.AUDIT) }
                 AdminMenuRow(R.drawable.ic_tune, "تنظیمات زنده", "سرور رایگان، پشتیبانی، به‌روزرسانی", last = true) { open(AdminSection.CONFIG) }
             }
             AppCard(modifier = Modifier.clickable { onExit() }) {

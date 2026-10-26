@@ -108,6 +108,14 @@ data class CryptoOrder(
     val hasReceipt: Boolean = false,
 )
 
+data class AuditLog(
+    val actor: String,
+    val action: String,
+    val target: String,
+    val detail: String,
+    val created: Long,
+)
+
 /**
  * Talks to the backend's admin endpoints. The caller passes the admin session token
  * obtained from /auth/admin-login; it authorizes every admin request.
@@ -317,4 +325,23 @@ object AdminApi {
 
     fun decideCryptoOrder(base: String, token: String, id: String, action: String, reason: String = "") =
         post(base, "/admin/crypto-order", token, JSONObject().put("id", id).put("action", action).put("reason", reason))
+
+    /** Fetches a submitted receipt image's raw bytes (authorized), or null if there is none. */
+    fun cryptoReceipt(base: String, token: String, id: String): ByteArray? {
+        val r = Http.request(
+            "$base/admin/crypto-order/receipt?id=" + java.net.URLEncoder.encode(id, "UTF-8"),
+            headers = mapOf("Authorization" to "Bearer $token"), timeoutMs = 20_000,
+        )
+        return if (r.ok) r.body else null
+    }
+
+    // ---- audit log ----
+
+    fun auditLogs(base: String, token: String, limit: Int = 100): List<AuditLog> {
+        val arr = get(base, "/admin/audit?limit=$limit", token).optJSONArray("logs")
+        return (0 until (arr?.length() ?: 0)).map { i ->
+            val o = arr!!.getJSONObject(i)
+            AuditLog(o.optString("actor"), o.optString("action"), o.optString("target"), o.optString("detail"), o.optLong("created"))
+        }
+    }
 }
