@@ -2,10 +2,10 @@ name: Build APK
 
 on:
   # Pushes to main publish the public APK to the "latest" release (the live download link).
-  # Pushes to v2 only build and upload a workflow artifact, so new work can be tested
-  # without disturbing users who are downloading from "latest".
+  # Pushes to a staging branch (v2, gsignin) only build and upload a workflow artifact, so new
+  # work can be tested without disturbing users who are downloading from "latest".
   push:
-    branches: [main, v2]
+    branches: [main, v2, gsignin]
     paths-ignore:
       - 'remote/ads/**'
       - 'backend/**'
