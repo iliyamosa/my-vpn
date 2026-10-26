@@ -174,6 +174,27 @@ object AccountManager {
             }
         }
 
+    /** The backend's configured Google Web client id, or "" when Google Sign-In isn't set up. */
+    suspend fun googleClientId(): String = withContext(Dispatchers.IO) {
+        try { AccountApi.googleConfig(base()) } catch (e: Exception) { "" }
+    }
+
+    /** Completes sign-in with a Google ID token the app obtained via Credential Manager. */
+    suspend fun googleLogin(context: Context, idToken: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            val store = ClientStore(context)
+            try {
+                val auth = AccountApi.googleLogin(base(), idToken, store.deviceId, model())
+                store.authToken = auth.token
+                cache(context, auth.account)
+                loggedIn.value = true
+                refreshMe(context)
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
     suspend fun refreshMe(context: Context) = withContext(Dispatchers.IO) {
         val store = ClientStore(context)
         val token = store.authToken

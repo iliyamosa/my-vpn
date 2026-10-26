@@ -85,6 +85,8 @@ data class PaymentSettings(
     // write-only (typed by admin; blank keeps the existing value)
     val beyApiKey: String = "",
     val beyWebhookSecret: String = "",
+    // Google Sign-In Web client id (public, not a secret).
+    val googleClientId: String = "",
 )
 
 data class CryptoOrder(
@@ -298,6 +300,7 @@ object AdminApi {
         o.optBoolean("cryptoEnabled"), o.optString("cryptoAsset"), o.optString("cryptoAddress"), o.optString("cryptoAddresses"), o.optString("cryptoNote"),
         o.optBoolean("cardEnabled"), o.optString("cardNumber"), o.optString("cardHolder"), o.optString("cardNote"),
         o.optBoolean("beyEnabled"), o.optBoolean("beyApiKeySet"), o.optString("beyWebhookId"), o.optBoolean("beyWebhookSecretSet"),
+        googleClientId = o.optString("googleClientId"),
     )
 
     fun getSettings(base: String, token: String): PaymentSettings = parseSettings(post(base, "/admin/settings", token, JSONObject()))
@@ -305,7 +308,8 @@ object AdminApi {
     fun saveSettings(base: String, token: String, s: PaymentSettings): PaymentSettings {
         val o = post(base, "/admin/settings", token, JSONObject()
             .put("cryptoEnabled", s.cryptoEnabled).put("cryptoAddresses", s.cryptoAddresses).put("cryptoNote", s.cryptoNote)
-            .put("cardEnabled", s.cardEnabled).put("cardNumber", s.cardNumber).put("cardHolder", s.cardHolder).put("cardNote", s.cardNote))
+            .put("cardEnabled", s.cardEnabled).put("cardNumber", s.cardNumber).put("cardHolder", s.cardHolder).put("cardNote", s.cardNote)
+            .put("googleClientId", s.googleClientId))
         return parseSettings(o)
     }
 

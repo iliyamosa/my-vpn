@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -20,7 +21,9 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.foundation.border
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,6 +38,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
+import androidx.credentials.CredentialManager
+import androidx.credentials.GetCredentialRequest
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import app.vpn.client.MainActivity
 import app.vpn.client.data.AccountManager
 import app.vpn.common.AccountException
@@ -55,6 +62,43 @@ fun AuthScreen(activity: MainActivity) {
     var password by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var googleClientId by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) { googleClientId = AccountManager.googleClientId() }
+
+    fun googleSignIn() {
+        error = null
+        busy = true
+        scope.launch {
+            try {
+                val clientId = googleClientId
+                if (clientId.isBlank()) { busy = false; error = "ورود با گوگل فعال نیست."; return@launch }
+                val option = GetGoogleIdOption.Builder()
+                    .setServerClientId(clientId)
+                    .setFilterByAuthorizedAccounts(false)
+                    .setAutoSelectEnabled(false)
+                    .build()
+                val request = GetCredentialRequest.Builder().addCredentialOption(option).build()
+                val response = CredentialManager.create(activity).getCredential(activity, request)
+                val cred = response.credential
+                val idToken = if (cred is GoogleIdTokenCredential) {
+                    cred.idToken
+                } else if (cred.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+                    GoogleIdTokenCredential.createFrom(cred.data).idToken
+                } else {
+                    null
+                }
+                if (idToken.isNullOrBlank()) { busy = false; error = "توکن گوگل دریافت نشد."; return@launch }
+                val r = AccountManager.googleLogin(activity, idToken)
+                busy = false
+                r.onFailure { e -> error = (e as? AccountException)?.message ?: e.message ?: "ورود با گوگل ناموفق بود." }
+            } catch (e: Exception) {
+                busy = false
+                // A user cancelling the Google sheet throws; show a soft message, not an error dump.
+                error = "ورود با گوگل انجام نشد. دوباره تلاش کنید یا با ایمیل وارد شوید."
+            }
+        }
+    }
 
     fun submit() {
         error = null
@@ -148,6 +192,14 @@ fun AuthScreen(activity: MainActivity) {
 
             Spacer(Modifier.height(20.dp))
             GradientButton(if (tab == 0) "ورود" else "ثبت‌نام و شروع", onClick = { submit() }, enabled = !busy, loading = busy)
+
+            if (googleClientId.isNotBlank()) {
+                Spacer(Modifier.height(14.dp))
+                Text("یا", color = AppColors.TextMuted, style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(10.dp))
+                GoogleButton(enabled = !busy, onClick = { googleSignIn() })
+            }
+
             Spacer(Modifier.height(20.dp))
             Text(
                 "ما IP، سایت‌هایی که باز می‌کنید و ترافیک شما را ذخیره نمی‌کنیم.",
@@ -157,6 +209,26 @@ fun AuthScreen(activity: MainActivity) {
             )
             Spacer(Modifier.height(20.dp))
         }
+    }
+}
+
+@Composable
+private fun GoogleButton(enabled: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Color.White.copy(alpha = 0.95f))
+            .border(1.dp, Color.White.copy(alpha = 0.6f), shape)
+            .clickable(enabled = enabled) { onClick() }
+            .padding(vertical = 13.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("G", color = Color(0xFF4285F4), style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.width(10.dp))
+        Text("ورود با گوگل", color = Color(0xFF1F1F1F), style = MaterialTheme.typography.titleSmall)
     }
 }
 

@@ -587,6 +587,7 @@ fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
     var cardNumber by remember { mutableStateOf("") }
     var cardHolder by remember { mutableStateOf("") }
     var cardNote by remember { mutableStateOf("") }
+    var googleClientId by remember { mutableStateOf("") }
     var msg by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
@@ -599,6 +600,7 @@ fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
         }
         cryptoNote = s.cryptoNote
         cardEnabled = s.cardEnabled; cardNumber = s.cardNumber; cardHolder = s.cardHolder; cardNote = s.cardNote
+        googleClientId = s.googleClientId
     }
 
     LaunchedEffect(Unit) {
@@ -616,6 +618,7 @@ fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
                         merchantId = "", gateway = "", sandbox = false, buyUrl = "",
                         cryptoEnabled = cryptoEnabled, cryptoAddresses = cryptoAddresses, cryptoNote = cryptoNote.trim(),
                         cardEnabled = cardEnabled, cardNumber = cardNumber.trim(), cardHolder = cardHolder.trim(), cardNote = cardNote.trim(),
+                        googleClientId = googleClientId.trim(),
                     ))
                 }
                 apply(s)
@@ -659,6 +662,18 @@ fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
             AdminField("نام صاحب کارت", cardHolder, { cardHolder = it })
             Spacer(Modifier.height(8.dp))
             AdminField("توضیح (اختیاری)", cardNote, { cardNote = it }, singleLine = false)
+        }
+
+        // ---- Google Sign-In ----
+        AppCard {
+            Text("ورود با گوگل", style = MaterialTheme.typography.titleSmall, color = AppColors.Primary)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Web Client ID از Google Cloud را اینجا بگذار (به شکل ...apps.googleusercontent.com). عمومی است و رمز نیست. خالی بگذاری، دکمهٔ «ورود با گوگل» در اپ نشان داده نمی‌شود.",
+                style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary,
+            )
+            Spacer(Modifier.height(10.dp))
+            AdminField("Google Web Client ID", googleClientId, { googleClientId = it }, singleLine = false)
         }
 
         AdminSaveButton("ذخیره", enabled = loaded && !saving) { save() }

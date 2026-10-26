@@ -128,6 +128,16 @@ object AccountApi {
         return o.optString("token")
     }
 
+    /** The backend's configured Google Web client id (empty when Google Sign-In isn't set up). */
+    fun googleConfig(base: String): String = get(base, "/auth/google-config").optString("clientId")
+
+    /** Signs in with a Google ID token; the backend verifies it and links/creates the account. */
+    fun googleLogin(base: String, idToken: String, deviceId: String, model: String): Auth {
+        val o = post(base, "/auth/google", JSONObject()
+            .put("idToken", idToken).put("deviceId", deviceId).put("model", model))
+        return Auth(o.optString("token"), Account.from(o.getJSONObject("account")))
+    }
+
     fun logout(base: String, token: String) {
         try {
             post(base, "/auth/logout", JSONObject(), token)

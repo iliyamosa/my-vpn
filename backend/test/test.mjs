@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { Hub, dayOf } from "../src/index.js";
-import { hashPassword } from "../src/accounts.js";
+import { hashPassword, validateGoogleClaims, googleUpsertLogin, ApiError } from "../src/accounts.js";
 
 function makeSql() {
   const db = new DatabaseSync(":memory:");
@@ -243,6 +243,40 @@ r = await call(hub, "GET", "/auth/google-config");
 assert.equal(r.data.clientId, "test-client.apps.googleusercontent.com", "google client id exposed to the app");
 r = await call(hub, "POST", "/auth/google", { idToken: "", deviceId: "device-g0000001" });
 assert.equal(r.status, 400, "missing google token rejected before any network call");
+
+// ---- google claim validation (pure, no network) ----
+const CID = "test-client.apps.googleusercontent.com";
+const goodClaims = { aud: CID, iss: "https://accounts.google.com", exp: Math.floor(Date.now() / 1000) + 3600, email: "gclaim@gmail.com", email_verified: true, sub: "123", name: "G Claim" };
+function rejects(claims, note) {
+  try { validateGoogleClaims(claims, CID); assert.fail("should have thrown: " + note); }
+  catch (e) { assert.ok(e instanceof ApiError, note + " -> ApiError"); }
+}
+assert.deepEqual(validateGoogleClaims(goodClaims, CID).email, "gclaim@gmail.com");
+rejects({ ...goodClaims, aud: "someone-else.apps.googleusercontent.com" }, "wrong audience");
+rejects({ ...goodClaims, iss: "evil.example.com" }, "wrong issuer");
+rejects({ ...goodClaims, exp: Math.floor(Date.now() / 1000) - 10 }, "expired");
+rejects({ ...goodClaims, email_verified: false }, "unverified email");
+try { validateGoogleClaims(goodClaims, ""); assert.fail("no client id should 503"); }
+catch (e) { assert.equal(e.status, 503, "not configured -> 503"); }
+
+// ---- google account linking / creation / 2-device (pure, no network) ----
+// new account is created from a Google profile
+let g = await googleUpsertLogin(hub.sql, { email: "gnew@gmail.com", name: "G New" }, { deviceId: "device-gnew00001" });
+assert.ok(g.token && g.account.email === "gnew@gmail.com", "google creates a new account");
+const gnewId = g.account.id;
+// an existing (password) account with the same email is LINKED, not duplicated
+r = await call(hub, "POST", "/auth/register", { email: "glink@gmail.com", username: "glinkuser", password: "secret1", deviceId: "device-glink0001" });
+assert.equal(r.status, 200); const glinkId = r.data.account.id;
+g = await googleUpsertLogin(hub.sql, { email: "GLINK@gmail.com", name: "x" }, { deviceId: "device-glink0002" });
+assert.equal(g.account.id, glinkId, "google links to the existing account by email");
+assert.equal(g.account.username, "glinkuser", "existing username preserved on link");
+// 2-device limit also applies to Google sign-in
+g = await googleUpsertLogin(hub.sql, { email: "gnew@gmail.com", name: "G New" }, { deviceId: "device-gnew00002" });
+assert.ok(g.token, "second device allowed");
+let blocked = false;
+try { await googleUpsertLogin(hub.sql, { email: "gnew@gmail.com", name: "G New" }, { deviceId: "device-gnew00003" }); }
+catch (e) { blocked = (e instanceof ApiError && e.status === 403); }
+assert.ok(blocked, "third device blocked for google sign-in too");
 
 assert.equal(dayOf(Date.UTC(2026, 9, 20, 20, 31)), "2026-10-21");
 console.log("ALL BACKEND TESTS PASSED");

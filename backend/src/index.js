@@ -690,11 +690,8 @@ export class Hub {
     } catch (e) {
       throw new A.ApiError(401, "توکن گوگل معتبر نیست.");
     }
-    if (t.aud !== clientId) throw new A.ApiError(401, "توکن گوگل برای این برنامه نیست.");
-    if (Number(t.exp || 0) * 1000 < Date.now()) throw new A.ApiError(401, "توکن گوگل منقضی شده است.");
-    const verified = t.email_verified === true || t.email_verified === "true";
-    if (!t.email || !verified) throw new A.ApiError(401, "ایمیل گوگل تأیید نشده است.");
-    return { email: t.email, sub: t.sub, name: t.name || "" };
+    // Enforce audience, issuer, expiry and verified email on the returned claims.
+    return A.validateGoogleClaims(t, clientId);
   }
 
   /** Public: sign in (or auto-register) with a Google ID token. */

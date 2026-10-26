@@ -129,4 +129,10 @@ dependencies {
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.compose.material3)
     implementation(libs.kotlinx.coroutines.android)
+
+    // Google Sign-In via Credential Manager (ID-token flow; no client secret involved).
+    // Only the public client app signs in with Google.
+    "clientImplementation"("androidx.credentials:credentials:1.3.0")
+    "clientImplementation"("androidx.credentials:credentials-play-services-auth:1.3.0")
+    "clientImplementation"("com.google.android.libraries.identity.googleid:googleid:1.1.1")
 }

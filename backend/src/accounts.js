@@ -315,6 +315,24 @@ export async function logout(sql, token) {
   return { ok: true };
 }
 
+const GOOGLE_ISS = ["accounts.google.com", "https://accounts.google.com"];
+
+/**
+ * Validates the claims of a Google ID token (already signature-checked by Google's tokeninfo
+ * endpoint). Enforces audience (our Web client id), issuer, expiry and a verified email.
+ * Throws ApiError on any failure; returns the trusted profile on success.
+ */
+export function validateGoogleClaims(claims, clientId) {
+  if (!clientId) throw new ApiError(503, "ورود با گوگل هنوز تنظیم نشده است.");
+  if (!claims || typeof claims !== "object") throw new ApiError(401, "توکن گوگل معتبر نیست.");
+  if (claims.aud !== clientId) throw new ApiError(401, "توکن گوگل برای این برنامه نیست.");
+  if (!GOOGLE_ISS.includes(String(claims.iss || ""))) throw new ApiError(401, "صادرکنندهٔ توکن گوگل معتبر نیست.");
+  if (Number(claims.exp || 0) * 1000 < Date.now()) throw new ApiError(401, "توکن گوگل منقضی شده است.");
+  const verified = claims.email_verified === true || claims.email_verified === "true";
+  if (!claims.email || !verified) throw new ApiError(401, "ایمیل گوگل تأیید نشده است.");
+  return { email: claims.email, sub: claims.sub, name: claims.name || "" };
+}
+
 /** Builds a free, unique username from a Google email's local part (e.g. "ali.x" -> "ali_x"). */
 function usernameFromEmail(sql, email) {
   let base = String(email).split("@")[0].replace(/[^A-Za-z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
