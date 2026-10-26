@@ -289,7 +289,7 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
-    if (path === "/") return json({ ok: true, service: "fairosvpn", build: "20261026-paylifecycle" });
+    if (path === "/") return json({ ok: true, service: "fairosvpn", build: "20261026-google" });
     // The purchase website is served straight from the Worker.
     if (path === "/buy" || path === "/pay/callback") {
       const stub0 = env.HUB.get(env.HUB.idFromName("main"));
@@ -388,6 +388,8 @@ export class Hub {
         case "/auth/login": return json(await A.login(sql, await body()));
         case "/auth/logout": return json(await A.logout(sql, token));
         case "/auth/admin-login": return json(await A.adminLogin(sql, this.env, await body()));
+        case "/auth/google": return json(await this.authGoogle(await body()));
+        case "/auth/google-config": return json({ clientId: (this.env.GOOGLE_CLIENT_ID || A.kvGet(sql, "google_client_id", "")).trim() });
 
         // ---- profile (logged-in user)
         case "/me": { const { acc } = await user(); return json(A.getMe(sql, acc)); }
@@ -482,6 +484,7 @@ export class Hub {
       if (typeof b.cardNumber === "string") A.kvSet(this.sql, "card_number", b.cardNumber.trim().slice(0, 40));
       if (typeof b.cardHolder === "string") A.kvSet(this.sql, "card_holder", b.cardHolder.trim().slice(0, 80));
       if (typeof b.cardNote === "string") A.kvSet(this.sql, "card_note", b.cardNote.trim().slice(0, 300));
+      if (typeof b.googleClientId === "string") A.kvSet(this.sql, "google_client_id", b.googleClientId.trim().slice(0, 200));
       if (typeof b.beyEnabled === "boolean") A.kvSet(this.sql, "bey_enabled", b.beyEnabled ? "1" : "0");
       // API key and webhook secret are write-only: a blank value keeps the existing one.
       if (typeof b.beyApiKey === "string" && b.beyApiKey.trim()) A.kvSet(this.sql, "bey_api_key", b.beyApiKey.trim().slice(0, 2000));
@@ -503,6 +506,7 @@ export class Hub {
       cardNumber: A.kvGet(this.sql, "card_number", ""),
       cardHolder: A.kvGet(this.sql, "card_holder", ""),
       cardNote: A.kvGet(this.sql, "card_note", ""),
+      googleClientId: A.kvGet(this.sql, "google_client_id", ""),
       beyEnabled: A.kvGet(this.sql, "bey_enabled", "0") === "1",
       // Never send the full API key back; just whether one is set.
       beyApiKeySet: !!beyKey,
@@ -671,6 +675,32 @@ export class Hub {
     };
     const html = buildBuyPage(origin, plans, crypto, card);
     return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", ...CORS } });
+  }
+
+  /** Verifies a Google ID token with Google and returns the verified profile, or throws. */
+  async verifyGoogleIdToken(idToken) {
+    const clientId = (this.env.GOOGLE_CLIENT_ID || A.kvGet(this.sql, "google_client_id", "")).trim();
+    if (!clientId) throw new A.ApiError(503, "ورود با گوگل هنوز تنظیم نشده است.");
+    if (!idToken) throw new A.ApiError(400, "توکن گوگل ارسال نشد.");
+    let t;
+    try {
+      const r = await fetch("https://oauth2.googleapis.com/tokeninfo?id_token=" + encodeURIComponent(idToken));
+      if (!r.ok) throw new Error("bad");
+      t = await r.json();
+    } catch (e) {
+      throw new A.ApiError(401, "توکن گوگل معتبر نیست.");
+    }
+    if (t.aud !== clientId) throw new A.ApiError(401, "توکن گوگل برای این برنامه نیست.");
+    if (Number(t.exp || 0) * 1000 < Date.now()) throw new A.ApiError(401, "توکن گوگل منقضی شده است.");
+    const verified = t.email_verified === true || t.email_verified === "true";
+    if (!t.email || !verified) throw new A.ApiError(401, "ایمیل گوگل تأیید نشده است.");
+    return { email: t.email, sub: t.sub, name: t.name || "" };
+  }
+
+  /** Public: sign in (or auto-register) with a Google ID token. */
+  async authGoogle(body) {
+    const profile = await this.verifyGoogleIdToken(String(body.idToken || ""));
+    return await A.googleUpsertLogin(this.sql, profile, body);
   }
 
   /** Public: records a crypto payment the user claims to have made (pending admin review). Legacy one-step. */

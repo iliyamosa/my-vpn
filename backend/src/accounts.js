@@ -315,6 +315,64 @@ export async function logout(sql, token) {
   return { ok: true };
 }
 
+/** Builds a free, unique username from a Google email's local part (e.g. "ali.x" -> "ali_x"). */
+function usernameFromEmail(sql, email) {
+  let base = String(email).split("@")[0].replace(/[^A-Za-z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
+  if (base.length < 3) base = "user" + base;
+  base = base.slice(0, 16);
+  let name = base;
+  let n = 0;
+  while (one(sql, "SELECT 1 FROM accounts WHERE lower(username) = lower(?)", name)) {
+    n += 1;
+    name = (base.slice(0, 15) + n).slice(0, 20);
+  }
+  return name;
+}
+
+/**
+ * Signs a user in from a Google account (email already verified by Google). Links to an existing
+ * account with the same email, or creates one with a random password. Applies the 2-device limit.
+ * The caller must have verified the Google ID token first.
+ */
+export async function googleUpsertLogin(sql, profile, body) {
+  const email = cleanEmail(profile.email);
+  const device = cleanDevice(body.deviceId);
+  const now = Date.now();
+  let acc = one(sql, "SELECT * FROM accounts WHERE email = ?", email);
+  if (!acc) {
+    const id = newId();
+    const username = usernameFromEmail(sql, email);
+    const display = String(profile.name || username).trim().slice(0, 40) || username;
+    const randomPass = randomToken(); // unguessable; the user signs in with Google, not this
+    sql.exec(
+      "INSERT INTO accounts (id, email, username, display_name, pass_hash, points, pro_until, invited_by, created, updated) VALUES (?, ?, ?, ?, ?, 0, 0, '', ?, ?)",
+      id, email, username, display, await hashPassword(randomPass), now, now,
+    );
+    sql.exec("INSERT INTO account_devices (account_id, device_id, label, created, last_seen) VALUES (?, ?, ?, ?, ?)",
+      id, device, String(body.model || "").slice(0, 60), now, now);
+    acc = one(sql, "SELECT * FROM accounts WHERE id = ?", id);
+    const token = await makeSession(sql, id, device, false, SESSION_DAYS);
+    return { token, account: publicAccount(sql, acc) };
+  }
+  // Existing account: enforce the 2-device limit just like password login.
+  const existing = one(sql, "SELECT 1 FROM account_devices WHERE account_id = ? AND device_id = ?", acc.id, device);
+  if (!existing) {
+    const count = Number(one(sql, "SELECT COUNT(*) AS n FROM account_devices WHERE account_id = ?", acc.id).n || 0);
+    if (count >= MAX_DEVICES) {
+      const devices = all(sql, "SELECT device_id, label, last_seen FROM account_devices WHERE account_id = ? ORDER BY last_seen DESC", acc.id)
+        .map((d) => ({ id: d.device_id, label: d.label || "دستگاه", lastSeen: Number(d.last_seen || 0) }));
+      throw new ApiError(403, "device_limit", { message: "این حساب روی ۲ دستگاه فعال است. برای ورود دستگاه جدید، یکی را حذف کنید.", devices });
+    }
+    sql.exec("INSERT INTO account_devices (account_id, device_id, label, created, last_seen) VALUES (?, ?, ?, ?, ?)",
+      acc.id, device, String(body.model || "").slice(0, 60), now, now);
+  } else {
+    sql.exec("UPDATE account_devices SET last_seen = ?, label = ? WHERE account_id = ? AND device_id = ?",
+      now, String(body.model || "").slice(0, 60), acc.id, device);
+  }
+  const token = await makeSession(sql, acc.id, device, false, SESSION_DAYS);
+  return { token, account: publicAccount(sql, acc) };
+}
+
 export async function adminLogin(sql, env, body) {
   const user = String(body.username || "").trim();
   const pass = String(body.password || "");

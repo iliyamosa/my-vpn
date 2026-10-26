@@ -234,5 +234,15 @@ assert.ok(r.data.logs.some((l) => l.action === "order_reject"), "reject audited"
 r = await call(hub, "POST", "/pay/crypto", { login: "payer", password: "secret1", planId: payPlan, method: "crypto", txid: "0xabc123" });
 assert.equal(r.status, 200, "legacy /pay/crypto still works");
 
+// ---- google sign-in (server half; real token verification needs a live Google token) ----
+r = await call(hub, "POST", "/auth/google", { idToken: "x", deviceId: "device-g0000001" });
+assert.equal(r.status, 503, "google rejected until a client id is configured");
+r = await call(hub, "POST", "/admin/settings", { googleClientId: "test-client.apps.googleusercontent.com" }, adminToken);
+assert.equal(r.status, 200);
+r = await call(hub, "GET", "/auth/google-config");
+assert.equal(r.data.clientId, "test-client.apps.googleusercontent.com", "google client id exposed to the app");
+r = await call(hub, "POST", "/auth/google", { idToken: "", deviceId: "device-g0000001" });
+assert.equal(r.status, 400, "missing google token rejected before any network call");
+
 assert.equal(dayOf(Date.UTC(2026, 9, 20, 20, 31)), "2026-10-21");
 console.log("ALL BACKEND TESTS PASSED");
