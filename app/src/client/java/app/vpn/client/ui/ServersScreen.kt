@@ -43,6 +43,7 @@ import app.vpn.client.data.ServerRepository
 import app.vpn.ui.AppColors
 import app.vpn.ui.AppIcon
 import app.vpn.ui.SectionTitle
+import app.vpn.ui.glassRow
 import kotlinx.coroutines.launch
 
 @Composable
@@ -199,16 +200,13 @@ private fun ServerRow(
     locked: Boolean,
     onClick: () -> Unit,
 ) {
-    val borderColor = if (selected) AppColors.Primary else Color.Transparent
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(AppColors.Surface.copy(alpha = 0.8f))
-            .border(1.5.dp, borderColor, RoundedCornerShape(16.dp))
+            .padding(vertical = 5.dp)
+            .glassRow(selected = selected, glow = if (locked) AppColors.Gold else AppColors.Primary)
             .clickable { onClick() }
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 14.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(

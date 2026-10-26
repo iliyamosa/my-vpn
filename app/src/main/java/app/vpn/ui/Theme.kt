@@ -2,6 +2,7 @@ package app.vpn.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.Typography
@@ -55,6 +57,10 @@ object AppColors {
     val TextPrimary = Color(0xFFEEF0FA)
     val TextSecondary = Color(0xFF9AA0C4)
     val TextMuted = Color(0xFF686E96)
+
+    // Glass surface tint: a cool violet-blue the frosted panes are built from, so the
+    // animated background light reads through them without washing out text.
+    val GlassBase = Color(0xFF151A36)
 
     val brand = listOf(Blue, Violet, Magenta)
 }
@@ -114,33 +120,79 @@ fun AppTheme(content: @Composable () -> Unit) {
     }
 }
 
-/** Raised "glass" card: translucent, with a light edge and a soft colored shadow for depth. */
+/**
+ * Frosted "glass" pane — the one card every screen is built from.
+ *
+ * It layers a translucent violet-blue fill, a top-down sheen, a faint colored tint and a
+ * fine light-to-glow edge, over a soft colored shadow. The animated [SpaceBackground]
+ * shows faintly through it, so it reads as real glass. Runtime backdrop-blur is avoided
+ * on purpose (it is costly and janky on weak devices); this translucent build stays smooth
+ * everywhere while giving the same frosted look.
+ */
 @Composable
 fun AppCard(
     modifier: Modifier = Modifier,
-    color: Color = AppColors.Surface,
+    color: Color = AppColors.GlassBase,
     glow: Color = AppColors.Primary,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val shape = RoundedCornerShape(22.dp)
-    Card(
+    val shape = RoundedCornerShape(24.dp)
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .shadow(14.dp, shape, ambientColor = glow.copy(alpha = 0.35f), spotColor = glow.copy(alpha = 0.45f)),
-        shape = shape,
-        border = BorderStroke(
-            1.dp,
-            Brush.linearGradient(listOf(Color.White.copy(alpha = 0.22f), Color.White.copy(alpha = 0.03f), glow.copy(alpha = 0.18f))),
-        ),
-        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.82f), contentColor = AppColors.TextPrimary),
+            .shadow(20.dp, shape, ambientColor = glow.copy(alpha = 0.26f), spotColor = glow.copy(alpha = 0.40f))
+            .clip(shape)
+            // translucent frosted fill (background light shows through the gap)
+            .background(Brush.verticalGradient(listOf(color.copy(alpha = 0.60f), color.copy(alpha = 0.46f))))
+            // sheen + faint colored glass tint
+            .background(
+                Brush.linearGradient(
+                    listOf(Color.White.copy(alpha = 0.07f), Color.Transparent, glow.copy(alpha = 0.07f)),
+                ),
+            )
+            .border(
+                1.dp,
+                Brush.linearGradient(
+                    listOf(Color.White.copy(alpha = 0.30f), Color.White.copy(alpha = 0.04f), glow.copy(alpha = 0.22f)),
+                ),
+                shape,
+            ),
     ) {
-        Column(
-            modifier = Modifier
-                .background(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.05f), Color.Transparent)))
-                .padding(16.dp),
-            content = content,
-        )
+        // Preserve the text color the old Material Card provided, so prose stays readable.
+        CompositionLocalProvider(LocalContentColor provides AppColors.TextPrimary) {
+            Column(modifier = Modifier.padding(16.dp), content = content)
+        }
     }
+}
+
+/**
+ * Translucent glass surface for list rows (server list, menu items, settings rows).
+ * Lighter than [AppCard] so rows stacked together stay calm; a selected row gets a
+ * brighter edge and a soft glow. Not a Composable, so it can be chained in any Modifier.
+ */
+fun Modifier.glassRow(selected: Boolean = false, glow: Color = AppColors.Primary): Modifier {
+    val shape = RoundedCornerShape(16.dp)
+    return this
+        .clip(shape)
+        .background(
+            Brush.verticalGradient(
+                listOf(
+                    AppColors.GlassBase.copy(alpha = if (selected) 0.72f else 0.52f),
+                    AppColors.GlassBase.copy(alpha = if (selected) 0.60f else 0.40f),
+                ),
+            ),
+        )
+        .border(
+            1.dp,
+            Brush.linearGradient(
+                if (selected) {
+                    listOf(glow.copy(alpha = 0.75f), glow.copy(alpha = 0.30f), glow.copy(alpha = 0.55f))
+                } else {
+                    listOf(Color.White.copy(alpha = 0.16f), Color.White.copy(alpha = 0.03f), glow.copy(alpha = 0.12f))
+                },
+            ),
+            shape,
+        )
 }
 
 @Composable

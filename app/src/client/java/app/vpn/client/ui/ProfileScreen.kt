@@ -190,9 +190,10 @@ fun MenuRow(
     ) {
         Box(
             modifier = Modifier
-                .size(38.dp)
-                .clip(RoundedCornerShape(11.dp))
-                .background(tint.copy(alpha = 0.14f)),
+                .size(40.dp)
+                .clip(RoundedCornerShape(13.dp))
+                .background(tint.copy(alpha = 0.16f))
+                .border(1.dp, tint.copy(alpha = 0.28f), RoundedCornerShape(13.dp)),
             contentAlignment = Alignment.Center,
         ) {
             AppIcon(icon, tint = tint, size = 20.dp)
