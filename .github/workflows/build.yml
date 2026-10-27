@@ -112,22 +112,30 @@ jobs:
           if-no-files-found: error
 
       - name: Publish release
-        # Only main updates the live "latest" download link. v2 builds stay as artifacts above.
+        # Only main updates the live "latest" download link. v2/gsignin builds stay as artifacts.
+        # When RELEASES_TOKEN is set, the APK is published to a SEPARATE PUBLIC repo so this
+        # source repo can be private while the download link stays public. Without it, it falls
+        # back to publishing on this repo (so nothing breaks before the token is configured).
         if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           NAME: ${{ steps.collect.outputs.name }}
         run: |
           TAG="v${{ steps.collect.outputs.version }}-b${{ github.run_number }}"
-          gh release create "$TAG" "out/${NAME}.apk" "out/${NAME}-arm64.apk" "out/${NAME}-arm32.apk" "out/${NAME}-play.aab" \
+          TARGET="iliyamosa/fairosvpn"
+          RTOKEN="$RELEASES_TOKEN"
+          if [ -z "$RTOKEN" ]; then TARGET="${{ github.repository }}"; RTOKEN="$GH_TOKEN"; fi
+          GH_TOKEN="$RTOKEN" gh release create "$TAG" "out/${NAME}.apk" "out/${NAME}-arm64.apk" "out/${NAME}-arm32.apk" "out/${NAME}-play.aab" \
+            --repo "$TARGET" \
             --title "$TAG" \
             --notes "${NAME}.apk: نصب روی همهٔ گوشی‌ها (پیشنهادی). ${NAME}-arm64.apk: گوشی‌های جدید. ${NAME}-arm32.apk: گوشی‌های قدیمی. ${NAME}-play.aab: برای انتشار در Google Play." \
             --latest
-          # keep only the 5 newest public app releases
-          gh release list --limit 100 --exclude-drafts --json tagName,createdAt \
+          # keep only the 5 newest app releases on the target repo
+          GH_TOKEN="$RTOKEN" gh release list --repo "$TARGET" --limit 100 --exclude-drafts --json tagName,createdAt \
             --jq 'map(select(.tagName | startswith("v"))) | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' \
-            | while read t; do gh release delete "$t" --yes --cleanup-tag || true; done
-          # close old build-failure reports
+            | while read t; do GH_TOKEN="$RTOKEN" gh release delete "$t" --repo "$TARGET" --yes --cleanup-tag || true; done
+          # close old build-failure reports (on this source repo)
           gh issue list --state open --search "Build failed in:title" --json number --jq '.[].number' \
             | while read n; do gh issue close "$n" --comment "Fixed in build ${{ github.run_number }}." || true; done
 

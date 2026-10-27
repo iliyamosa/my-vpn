@@ -59,7 +59,10 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // Shrink + obfuscate the shipped APK so it is hard to reverse-engineer.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = if (keystorePath != null) {
                 signingConfigs.getByName("release")
             } else {
