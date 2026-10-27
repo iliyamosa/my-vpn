@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { Hub, dayOf } from "../src/index.js";
-import { hashPassword, validateGoogleClaims, googleUpsertLogin, ApiError } from "../src/accounts.js";
+import { hashPassword, validateGoogleClaims, googleUpsertLogin, applyInvite, ApiError } from "../src/accounts.js";
 
 function makeSql() {
   const db = new DatabaseSync(":memory:");
@@ -277,6 +277,38 @@ let blocked = false;
 try { await googleUpsertLogin(hub.sql, { email: "gnew@gmail.com", name: "G New" }, { deviceId: "device-gnew00003" }); }
 catch (e) { blocked = (e instanceof ApiError && e.status === 403); }
 assert.ok(blocked, "third device blocked for google sign-in too");
+
+// ---- invite system with device-based anti-abuse ----
+r = await call(hub, "POST", "/admin/settings", { invitePointsInviter: 100, invitePointsInvitee: 50 }, adminToken);
+assert.equal(r.status, 200);
+assert.equal(r.data.invitePointsInviter, 100); assert.equal(r.data.invitePointsInvitee, 50);
+// an inviter
+r = await call(hub, "POST", "/auth/register", { email: "boss@mail.com", username: "bossx", password: "secret1", deviceId: "device-boss00001" });
+assert.equal(r.status, 200); const bossId = r.data.account.id; const bossTok = r.data.token;
+assert.equal(r.data.account.points, 0);
+// new user invited by boss on a fresh device: BOTH sides get points
+r = await call(hub, "POST", "/auth/register", { email: "inv1@mail.com", username: "inv1x", password: "secret1", deviceId: "device-inv100001", ref: bossId });
+assert.equal(r.status, 200); assert.equal(r.data.account.points, 50, "invitee is credited");
+r = await call(hub, "GET", "/me", undefined, bossTok);
+assert.equal(r.data.account.points, 100, "inviter is credited");
+// a SECOND account on the SAME device cannot be invited again (anti self-farming)
+r = await call(hub, "POST", "/auth/register", { email: "inv2@mail.com", username: "inv2x", password: "secret1", deviceId: "device-inv100001", ref: bossId });
+assert.equal(r.status, 200); assert.equal(r.data.account.points, 0, "same device cannot be invited twice");
+r = await call(hub, "GET", "/me", undefined, bossTok);
+assert.equal(r.data.account.points, 100, "inviter not credited again for the same device");
+// an invalid code is ignored; sign-up still succeeds with no points
+r = await call(hub, "POST", "/auth/register", { email: "inv3@mail.com", username: "inv3x", password: "secret1", deviceId: "device-inv300001", ref: "zzzznotarealid" });
+assert.equal(r.status, 200); assert.equal(r.data.account.points, 0, "invalid code -> no points, signup ok");
+// a new Google account can also use an invite code (fresh device)
+g = await googleUpsertLogin(hub.sql, { email: "ginv@gmail.com", name: "G Inv" }, { deviceId: "device-ginv00001", ref: bossId });
+assert.equal(g.account.points, 50, "google invitee credited");
+r = await call(hub, "GET", "/me", undefined, bossTok);
+assert.equal(r.data.account.points, 200, "inviter credited for both invites (inv1 + google), 100 each");
+// you cannot invite yourself
+const selfBefore = (await call(hub, "GET", "/me", undefined, bossTok)).data.account.points;
+applyInvite(hub.sql, { id: bossId }, bossId, "device-boss00099");
+r = await call(hub, "GET", "/me", undefined, bossTok);
+assert.equal(r.data.account.points, selfBefore, "self-invite credits nothing");
 
 assert.equal(dayOf(Date.UTC(2026, 9, 20, 20, 31)), "2026-10-21");
 console.log("ALL BACKEND TESTS PASSED");

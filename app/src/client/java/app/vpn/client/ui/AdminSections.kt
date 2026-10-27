@@ -588,6 +588,8 @@ fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
     var cardHolder by remember { mutableStateOf("") }
     var cardNote by remember { mutableStateOf("") }
     var googleClientId by remember { mutableStateOf("") }
+    var inviteInviter by remember { mutableStateOf("0") }
+    var inviteInvitee by remember { mutableStateOf("0") }
     var msg by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
@@ -601,6 +603,7 @@ fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
         cryptoNote = s.cryptoNote
         cardEnabled = s.cardEnabled; cardNumber = s.cardNumber; cardHolder = s.cardHolder; cardNote = s.cardNote
         googleClientId = s.googleClientId
+        inviteInviter = s.invitePointsInviter.toString(); inviteInvitee = s.invitePointsInvitee.toString()
     }
 
     LaunchedEffect(Unit) {
@@ -619,6 +622,8 @@ fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
                         cryptoEnabled = cryptoEnabled, cryptoAddresses = cryptoAddresses, cryptoNote = cryptoNote.trim(),
                         cardEnabled = cardEnabled, cardNumber = cardNumber.trim(), cardHolder = cardHolder.trim(), cardNote = cardNote.trim(),
                         googleClientId = googleClientId.trim(),
+                        invitePointsInviter = inviteInviter.trim().toIntOrNull() ?: 0,
+                        invitePointsInvitee = inviteInvitee.trim().toIntOrNull() ?: 0,
                     ))
                 }
                 apply(s)
@@ -674,6 +679,20 @@ fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
             )
             Spacer(Modifier.height(10.dp))
             AdminField("Google Web Client ID", googleClientId, { googleClientId = it }, singleLine = false)
+        }
+
+        // ---- invite rewards ----
+        AppCard {
+            Text("دعوت دوستان", style = MaterialTheme.typography.titleSmall, color = AppColors.Violet)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "امتیازی که هنگام ثبت‌نامِ موفق با کد دعوت داده می‌شود. هر شناسهٔ دستگاه فقط یک‌بار می‌تواند دعوت‌شونده باشد (ضدِ تقلب). ۰ یعنی غیرفعال. پیشنهاد: دعوت‌کننده ۱۰۰، دعوت‌شونده ۵۰.",
+                style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary,
+            )
+            Spacer(Modifier.height(10.dp))
+            AdminField("امتیاز به دعوت‌کننده", inviteInviter, { inviteInviter = it }, number = true)
+            Spacer(Modifier.height(8.dp))
+            AdminField("امتیاز به دعوت‌شونده", inviteInvitee, { inviteInvitee = it }, number = true)
         }
 
         AdminSaveButton("ذخیره", enabled = loaded && !saving) { save() }

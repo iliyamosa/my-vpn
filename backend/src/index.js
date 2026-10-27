@@ -485,6 +485,8 @@ export class Hub {
       if (typeof b.cardHolder === "string") A.kvSet(this.sql, "card_holder", b.cardHolder.trim().slice(0, 80));
       if (typeof b.cardNote === "string") A.kvSet(this.sql, "card_note", b.cardNote.trim().slice(0, 300));
       if (typeof b.googleClientId === "string") A.kvSet(this.sql, "google_client_id", b.googleClientId.trim().slice(0, 200));
+      if (b.invitePointsInviter !== undefined) A.kvSet(this.sql, "invite_points_inviter", String(Math.max(0, Math.trunc(Number(b.invitePointsInviter) || 0))));
+      if (b.invitePointsInvitee !== undefined) A.kvSet(this.sql, "invite_points_invitee", String(Math.max(0, Math.trunc(Number(b.invitePointsInvitee) || 0))));
       if (typeof b.beyEnabled === "boolean") A.kvSet(this.sql, "bey_enabled", b.beyEnabled ? "1" : "0");
       // API key and webhook secret are write-only: a blank value keeps the existing one.
       if (typeof b.beyApiKey === "string" && b.beyApiKey.trim()) A.kvSet(this.sql, "bey_api_key", b.beyApiKey.trim().slice(0, 2000));
@@ -507,6 +509,8 @@ export class Hub {
       cardHolder: A.kvGet(this.sql, "card_holder", ""),
       cardNote: A.kvGet(this.sql, "card_note", ""),
       googleClientId: A.kvGet(this.sql, "google_client_id", ""),
+      invitePointsInviter: Number(A.kvGet(this.sql, "invite_points_inviter", "0")),
+      invitePointsInvitee: Number(A.kvGet(this.sql, "invite_points_invitee", "0")),
       beyEnabled: A.kvGet(this.sql, "bey_enabled", "0") === "1",
       // Never send the full API key back; just whether one is set.
       beyApiKeySet: !!beyKey,

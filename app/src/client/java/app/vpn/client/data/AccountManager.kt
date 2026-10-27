@@ -180,11 +180,11 @@ object AccountManager {
     }
 
     /** Completes sign-in with a Google ID token the app obtained via Credential Manager. */
-    suspend fun googleLogin(context: Context, idToken: String): Result<Unit> =
+    suspend fun googleLogin(context: Context, idToken: String, ref: String = ""): Result<Unit> =
         withContext(Dispatchers.IO) {
             val store = ClientStore(context)
             try {
-                val auth = AccountApi.googleLogin(base(), idToken, store.deviceId, model())
+                val auth = AccountApi.googleLogin(base(), idToken, store.deviceId, model(), ref)
                 store.authToken = auth.token
                 cache(context, auth.account)
                 loggedIn.value = true

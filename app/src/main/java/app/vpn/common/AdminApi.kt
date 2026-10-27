@@ -87,6 +87,9 @@ data class PaymentSettings(
     val beyWebhookSecret: String = "",
     // Google Sign-In Web client id (public, not a secret).
     val googleClientId: String = "",
+    // Invite reward points (0 = invites give no points).
+    val invitePointsInviter: Int = 0,
+    val invitePointsInvitee: Int = 0,
 )
 
 data class CryptoOrder(
@@ -301,6 +304,8 @@ object AdminApi {
         o.optBoolean("cardEnabled"), o.optString("cardNumber"), o.optString("cardHolder"), o.optString("cardNote"),
         o.optBoolean("beyEnabled"), o.optBoolean("beyApiKeySet"), o.optString("beyWebhookId"), o.optBoolean("beyWebhookSecretSet"),
         googleClientId = o.optString("googleClientId"),
+        invitePointsInviter = o.optInt("invitePointsInviter"),
+        invitePointsInvitee = o.optInt("invitePointsInvitee"),
     )
 
     fun getSettings(base: String, token: String): PaymentSettings = parseSettings(post(base, "/admin/settings", token, JSONObject()))
@@ -309,7 +314,8 @@ object AdminApi {
         val o = post(base, "/admin/settings", token, JSONObject()
             .put("cryptoEnabled", s.cryptoEnabled).put("cryptoAddresses", s.cryptoAddresses).put("cryptoNote", s.cryptoNote)
             .put("cardEnabled", s.cardEnabled).put("cardNumber", s.cardNumber).put("cardHolder", s.cardHolder).put("cardNote", s.cardNote)
-            .put("googleClientId", s.googleClientId))
+            .put("googleClientId", s.googleClientId)
+            .put("invitePointsInviter", s.invitePointsInviter).put("invitePointsInvitee", s.invitePointsInvitee))
         return parseSettings(o)
     }
 

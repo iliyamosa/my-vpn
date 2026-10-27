@@ -142,6 +142,9 @@ export function initAccountTables(sql) {
   // Audit trail for sensitive admin actions (payment decisions, settings, roles).
   sql.exec(`CREATE TABLE IF NOT EXISTS audit_logs (
     id TEXT PRIMARY KEY, actor TEXT, action TEXT, target TEXT, detail TEXT, created INTEGER)`);
+  // Invite anti-abuse: a device id can be the *invitee* only once, ever.
+  sql.exec(`CREATE TABLE IF NOT EXISTS invite_claims (
+    device_id TEXT PRIMARY KEY, invitee_id TEXT, inviter_id TEXT, created INTEGER)`);
 }
 
 /** Records a sensitive admin action. Never stores secrets, only what was changed. */
@@ -259,6 +262,36 @@ export async function isAdminToken(sql, token) {
 
 // ---------------------------------------------------------------- auth
 
+// Invite rewards are opt-in: zero until the admin sets an amount in the panel.
+const DEFAULT_INVITE_INVITER = 0;
+const DEFAULT_INVITE_INVITEE = 0;
+
+/**
+ * Credits an invite when a brand-new account signs up with a referral code.
+ *
+ * Anti-abuse: a given device id can be the *invitee* only once, ever — so a fraudster
+ * cannot make many Google/email accounts on one phone and farm pro by inviting themselves.
+ * An inviter may invite unlimited *distinct* devices. Invalid or self codes are ignored
+ * silently so sign-up still succeeds. Points for both sides are admin-configurable.
+ * Call this only for a freshly created account.
+ */
+export function applyInvite(sql, inviteeAcc, inviterCode, deviceId) {
+  const code = String(inviterCode || "").trim().slice(0, 32);
+  const dev = String(deviceId || "").trim();
+  if (!code || !dev) return { credited: false };
+  if (one(sql, "SELECT 1 FROM invite_claims WHERE device_id = ?", dev)) return { credited: false, reason: "device_used" };
+  const inviter = one(sql, "SELECT * FROM accounts WHERE id = ?", code);
+  if (!inviter || inviter.id === inviteeAcc.id) return { credited: false, reason: "invalid" };
+  const now = Date.now();
+  const pInviter = Math.max(0, Math.trunc(Number(kvGet(sql, "invite_points_inviter", String(DEFAULT_INVITE_INVITER))) || 0));
+  const pInvitee = Math.max(0, Math.trunc(Number(kvGet(sql, "invite_points_invitee", String(DEFAULT_INVITE_INVITEE))) || 0));
+  sql.exec("INSERT INTO invite_claims (device_id, invitee_id, inviter_id, created) VALUES (?, ?, ?, ?)", dev, inviteeAcc.id, inviter.id, now);
+  sql.exec("UPDATE accounts SET invited_by = ?, updated = ? WHERE id = ? AND (invited_by = '' OR invited_by IS NULL)", inviter.id, now, inviteeAcc.id);
+  if (pInviter > 0) sql.exec("UPDATE accounts SET points = points + ? WHERE id = ?", pInviter, inviter.id);
+  if (pInvitee > 0) sql.exec("UPDATE accounts SET points = points + ? WHERE id = ?", pInvitee, inviteeAcc.id);
+  return { credited: true, inviterPoints: pInviter, inviteePoints: pInvitee };
+}
+
 export async function register(sql, body) {
   const email = cleanEmail(body.email);
   const username = cleanUsername(body.username);
@@ -269,16 +302,16 @@ export async function register(sql, body) {
   if (one(sql, "SELECT 1 FROM accounts WHERE lower(username) = lower(?)", username)) throw new ApiError(409, "این نام کاربری گرفته شده است.");
   const id = newId();
   const now = Date.now();
-  const refBy = String(body.ref || "").trim().slice(0, 32);
-  const refValid = refBy && refBy !== id && one(sql, "SELECT 1 FROM accounts WHERE id = ?", refBy) ? refBy : "";
   sql.exec(
-    "INSERT INTO accounts (id, email, username, display_name, pass_hash, points, pro_until, invited_by, created, updated) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?)",
-    id, email, username, display, await hashPassword(password), refValid, now, now,
+    "INSERT INTO accounts (id, email, username, display_name, pass_hash, points, pro_until, invited_by, created, updated) VALUES (?, ?, ?, ?, ?, 0, 0, '', ?, ?)",
+    id, email, username, display, await hashPassword(password), now, now,
   );
   sql.exec("INSERT INTO account_devices (account_id, device_id, label, created, last_seen) VALUES (?, ?, ?, ?, ?)",
     id, device, String(body.model || "").slice(0, 60), now, now);
+  let acc = one(sql, "SELECT * FROM accounts WHERE id = ?", id);
+  applyInvite(sql, acc, body.ref, device); // device-aware; rewards both sides
+  acc = one(sql, "SELECT * FROM accounts WHERE id = ?", id); // refresh points/invited_by
   const token = await makeSession(sql, id, device, false, SESSION_DAYS);
-  const acc = one(sql, "SELECT * FROM accounts WHERE id = ?", id);
   return { token, account: publicAccount(sql, acc) };
 }
 
@@ -368,6 +401,8 @@ export async function googleUpsertLogin(sql, profile, body) {
     );
     sql.exec("INSERT INTO account_devices (account_id, device_id, label, created, last_seen) VALUES (?, ?, ?, ?, ?)",
       id, device, String(body.model || "").slice(0, 60), now, now);
+    acc = one(sql, "SELECT * FROM accounts WHERE id = ?", id);
+    applyInvite(sql, acc, body.ref, device); // only new Google accounts can use an invite code
     acc = one(sql, "SELECT * FROM accounts WHERE id = ?", id);
     const token = await makeSession(sql, id, device, false, SESSION_DAYS);
     return { token, account: publicAccount(sql, acc) };

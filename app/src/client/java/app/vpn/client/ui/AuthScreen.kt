@@ -21,7 +21,11 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.res.painterResource
+import app.vpn.R
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -60,6 +64,7 @@ fun AuthScreen(activity: MainActivity) {
     var username by remember { mutableStateOf("") }
     var display by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var invite by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var googleClientId by remember { mutableStateOf("") }
@@ -89,7 +94,7 @@ fun AuthScreen(activity: MainActivity) {
                     null
                 }
                 if (idToken.isNullOrBlank()) { busy = false; error = "توکن گوگل دریافت نشد."; return@launch }
-                val r = AccountManager.googleLogin(activity, idToken)
+                val r = AccountManager.googleLogin(activity, idToken, invite.trim())
                 busy = false
                 r.onFailure { e -> error = (e as? AccountException)?.message ?: e.message ?: "ورود با گوگل ناموفق بود." }
             } catch (e: Exception) {
@@ -115,7 +120,7 @@ fun AuthScreen(activity: MainActivity) {
                 } else r
             } else {
                 if (email.isBlank() || username.isBlank() || password.isBlank()) { busy = false; error = "همه‌ی فیلدها را کامل کنید."; return@launch }
-                AccountManager.register(activity, email, username, password, display.ifBlank { username }, "")
+                AccountManager.register(activity, email, username, password, display.ifBlank { username }, invite.trim())
             }
             busy = false
             result.onFailure { e ->
@@ -183,6 +188,14 @@ fun AuthScreen(activity: MainActivity) {
                 AuthField("نام نمایشی", display, { display = it })
                 Spacer(Modifier.height(10.dp))
                 AuthField("رمز عبور (حداقل ۶ حرف)", password, { password = it }, password = true, ltr = true)
+                Spacer(Modifier.height(10.dp))
+                AuthField("کد دعوت (اختیاری)", invite, { invite = it.trim() }, ltr = true)
+                Text(
+                    "اگر کسی شما را دعوت کرده، کدش را وارد کنید تا هر دو امتیاز بگیرید.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = AppColors.TextMuted,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp, start = 4.dp),
+                )
             }
 
             if (error != null) {
@@ -226,7 +239,11 @@ private fun GoogleButton(enabled: Boolean, onClick: () -> Unit) {
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("G", color = Color(0xFF4285F4), style = MaterialTheme.typography.titleMedium)
+        Image(
+            painter = painterResource(R.drawable.ic_google),
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+        )
         Spacer(Modifier.width(10.dp))
         Text("ورود با گوگل", color = Color(0xFF1F1F1F), style = MaterialTheme.typography.titleSmall)
     }
