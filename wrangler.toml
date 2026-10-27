@@ -10,6 +10,8 @@ REPO = "iliyamosa/my-vpn"
 BRANCH = "main"
 # Admin username (not secret).
 ADMIN_USER = "iliyamosa"
+# Google Sign-In Web client id (public, not a secret). Enables the "ورود با گوگل" button.
+GOOGLE_CLIENT_ID = "23966033115-msc4pr8koj18iusrapa9ei74vc9ubkmr.apps.googleusercontent.com"
 # The admin PASSWORD is never stored — only its irreversible PBKDF2 hash (120k iterations).
 # Recovering the password from this hash is infeasible. To rotate it, generate a new hash
 # and replace the line below, or move it to a Cloudflare secret of the same name and delete it here.
