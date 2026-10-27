@@ -59,9 +59,11 @@ android {
 
     buildTypes {
         release {
-            // Shrink + obfuscate the shipped APK so it is hard to reverse-engineer.
+            // Obfuscate + shrink the CODE so the shipped APK is hard to reverse-engineer.
+            // Resource shrinking is intentionally OFF: it conflicts with ABI splits + the AAB
+            // build (AGP issue 402800800). Code obfuscation is what protects the logic.
             isMinifyEnabled = true
-            isShrinkResources = true
+            isShrinkResources = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = if (keystorePath != null) {
                 signingConfigs.getByName("release")
