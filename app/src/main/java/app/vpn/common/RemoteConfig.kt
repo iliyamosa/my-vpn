@@ -157,6 +157,14 @@ data class AdItem(
     val buttonText: String = "مشاهده",
     val seconds: Int = 5,
     val weight: Int = 1,
+    // Where it shows: "interstitial" (full screen before connecting) or "home" (banner on the home screen).
+    val placement: String = "interstitial",
+    // Auto-expiry: "none", "time" (hidden after expiresAt), or "views" (hidden once views >= maxViews).
+    val limitKind: String = "none",
+    val expiresAt: Long = 0L,
+    val maxViews: Int = 0,
+    // Server-provided, read-only: how many times this ad has been viewed (all time).
+    val views: Int = 0,
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id)
@@ -169,6 +177,17 @@ data class AdItem(
         put("buttonText", buttonText)
         put("seconds", seconds)
         put("weight", weight)
+        put("placement", placement)
+        put("limitKind", limitKind)
+        put("expiresAt", expiresAt)
+        put("maxViews", maxViews)
+    }
+
+    /** True when this ad has hit its configured limit (time passed or view cap reached). */
+    fun limitReached(now: Long): Boolean = when (limitKind) {
+        "time" -> expiresAt in 1 until now
+        "views" -> maxViews > 0 && views >= maxViews
+        else -> false
     }
 
     companion object {
@@ -185,6 +204,11 @@ data class AdItem(
                 buttonText = o.optString("buttonText", "مشاهده"),
                 seconds = o.optInt("seconds", 5).coerceIn(0, 60),
                 weight = o.optInt("weight", 1).coerceIn(1, 100),
+                placement = o.optString("placement", "interstitial").ifBlank { "interstitial" },
+                limitKind = o.optString("limitKind", "none").ifBlank { "none" },
+                expiresAt = o.optLong("expiresAt", 0L),
+                maxViews = o.optInt("maxViews", 0),
+                views = o.optInt("views", 0),
             )
         }
     }
@@ -201,9 +225,13 @@ data class AdsConfig(
         put("items", JSONArray().also { arr -> items.forEach { arr.put(it.toJson()) } })
     }
 
-    fun activeItems(): List<AdItem> =
+    /** Active ads for a placement: enabled, has content, and not past their time/view limit. */
+    fun activeItems(placement: String = "interstitial", now: Long = System.currentTimeMillis()): List<AdItem> =
         items.filter {
-            it.enabled && (it.title.isNotBlank() || it.text.isNotBlank() || it.imageUrl.isNotBlank() || it.videoUrl.isNotBlank())
+            it.enabled &&
+                (it.placement.ifBlank { "interstitial" } == placement) &&
+                !it.limitReached(now) &&
+                (it.title.isNotBlank() || it.text.isNotBlank() || it.imageUrl.isNotBlank() || it.videoUrl.isNotBlank())
         }
 
     companion object {

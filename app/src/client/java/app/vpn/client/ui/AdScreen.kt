@@ -268,7 +268,7 @@ fun AdScreen(activity: MainActivity, ad: AdItem, onFinished: () -> Unit) {
     }
 }
 
-private suspend fun loadAdImage(context: Context, url: String): ImageBitmap? = withContext(Dispatchers.IO) {
+internal suspend fun loadAdImage(context: Context, url: String): ImageBitmap? = withContext(Dispatchers.IO) {
     try {
         val file = AdCache.fileFor(context, url)
         if (!file.exists() || file.length() == 0L) {

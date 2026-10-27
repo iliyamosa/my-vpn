@@ -355,5 +355,32 @@ assert.equal(r.status, 400, "device already used as an invitee");
 r = await call(hub, "POST", "/me/redeem-invite", { code: "deadbeefdead", deviceId: "device-rinv00002" }, rinv2Tok);
 assert.equal(r.status, 400, "invalid invite code rejected");
 
+// ---- ads: per-ad view counting + served config injection + stats ----
+hub.storeConfig({
+  revision: 9,
+  ads: { enabled: true, items: [
+    { id: "adhome", enabled: true, placement: "home", title: "خانه", text: "t", limitKind: "views", maxViews: 2 },
+    { id: "adfull", enabled: true, placement: "interstitial", title: "تمام‌صفحه", text: "t", limitKind: "none" },
+  ] },
+});
+// stored config never carries live view counts
+let cfg0 = await call(hub, "GET", "/config");
+assert.equal(cfg0.data.ads.items.find((a) => a.id === "adhome").views, 0, "views start at zero");
+// three ad_view events for adhome across two devices (distinct devices dodge the flood guard)
+await call(hub, "POST", "/events", { d: "device-adview001", e: [{ t: "ad_view", id: "adhome" }, { t: "ad_view", id: "adhome" }] });
+await call(hub, "POST", "/events", { d: "device-adview002", e: [{ t: "ad_view", id: "adhome" }, { t: "ad_click", id: "adhome" }] });
+let cfg1 = await call(hub, "GET", "/config");
+assert.equal(cfg1.data.ads.items.find((a) => a.id === "adhome").views, 3, "served config shows live view total");
+assert.equal(cfg1.data.ads.items.find((a) => a.id === "adfull").views, 0, "unrelated ad stays at zero");
+// admin config also carries the injected counts
+let acfg = await call(hub, "GET", "/admin/config", undefined, adminToken);
+assert.equal(acfg.data.ads.items.find((a) => a.id === "adhome").views, 3, "admin config carries view counts");
+// summary exposes all-time ad views + the live "watching now" gauge + account totals
+let sum = await call(hub, "GET", "/admin/summary", undefined, adminToken);
+assert.equal(sum.status, 200);
+assert.equal(sum.data.adViewsAllTime, 3, "all-time ad views in summary");
+assert.ok(typeof sum.data.adWatchersNow === "number", "live ad-watcher gauge present");
+assert.ok(typeof sum.data.totalAccounts === "number" && typeof sum.data.proAccounts === "number", "account totals present");
+
 assert.equal(dayOf(Date.UTC(2026, 9, 20, 20, 31)), "2026-10-21");
 console.log("ALL BACKEND TESTS PASSED");

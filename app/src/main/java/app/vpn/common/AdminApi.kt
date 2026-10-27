@@ -116,6 +116,19 @@ data class CryptoOrder(
     val hasReceipt: Boolean = false,
 )
 
+data class AdminStats(
+    val totalAccounts: Int = 0,
+    val proAccounts: Int = 0,
+    val onlineNow: Int = 0,
+    val adWatchersNow: Int = 0,
+    val adViewsAllTime: Int = 0,
+    val active7: Int = 0,
+    val todayActive: Int = 0,
+    val todayConnected: Int = 0,
+    val totalDevices: Int = 0,
+    val generatedAt: Long = 0,
+)
+
 data class AuditLog(
     val actor: String,
     val action: String,
@@ -359,5 +372,25 @@ object AdminApi {
             val o = arr!!.getJSONObject(i)
             AuditLog(o.optString("actor"), o.optString("action"), o.optString("target"), o.optString("detail"), o.optLong("created"))
         }
+    }
+
+    fun resetAdViews(base: String, token: String, id: String) =
+        post(base, "/admin/ad-reset-views", token, JSONObject().put("id", id))
+
+    fun summary(base: String, token: String): AdminStats {
+        val o = get(base, "/admin/summary?days=7", token)
+        val today = o.optJSONObject("today")
+        return AdminStats(
+            totalAccounts = o.optInt("totalAccounts"),
+            proAccounts = o.optInt("proAccounts"),
+            onlineNow = o.optInt("online"),
+            adWatchersNow = o.optInt("adWatchersNow"),
+            adViewsAllTime = o.optInt("adViewsAllTime"),
+            active7 = o.optInt("active7"),
+            todayActive = today?.optInt("active") ?: 0,
+            todayConnected = today?.optInt("connected") ?: 0,
+            totalDevices = o.optInt("totalDevices"),
+            generatedAt = o.optLong("generatedAt"),
+        )
     }
 }

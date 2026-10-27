@@ -314,6 +314,7 @@ export class Hub {
     this.env = env;
     this.sql = state.storage.sql;
     this.lastBatch = new Map(); // device -> ms, simple flood protection
+    this.adWatchers = new Map(); // device -> ms expiry, live "watching an ad now" gauge
     this.cachedConfig = null;
     this.init();
     try {
@@ -343,6 +344,9 @@ export class Hub {
     this.sql.exec(`CREATE TABLE IF NOT EXISTS counters (
       day TEXT NOT NULL, kind TEXT NOT NULL, key TEXT NOT NULL, value INTEGER NOT NULL,
       PRIMARY KEY (day, kind, key))`);
+    // All-time per-ad view/click totals (never purged) — the reliable basis for a view cap.
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS ad_totals (
+      ad_id TEXT PRIMARY KEY, views INTEGER DEFAULT 0, clicks INTEGER DEFAULT 0)`);
     A.initAccountTables(this.sql);
   }
 
@@ -368,7 +372,7 @@ export class Hub {
       switch (path) {
         // ---- live settings + stats (existing)
         case "/ws": return this.handleWebSocket(request);
-        case "/config": return json(await this.getConfig());
+        case "/config": return json(this.configWithAdViews(await this.getConfig()));
         case "/events":
           if (request.method !== "POST") return json({ error: "method" }, 405);
           return this.handleEvents(await body());
@@ -407,8 +411,14 @@ export class Hub {
         case "/admin/config":
           await admin();
           if (request.method === "PUT" || request.method === "POST") return this.putConfig(await body());
-          return json(await this.getConfig());
+          return json(this.configWithAdViews(await this.getConfig()));
         case "/admin/summary": await admin(); return json(this.summary(Number(qp.get("days") || 14)));
+        case "/admin/ad-reset-views": {
+          await admin();
+          const id = str((await body()).id, 60);
+          if (id) this.sql.exec("UPDATE ad_totals SET views = 0 WHERE ad_id = ?", id);
+          return json({ ok: true, id, views: 0 });
+        }
         case "/admin/users": await admin(); return json(this.users(qp.get("tier") || "all", Number(qp.get("offset") || 0), Number(qp.get("limit") || 50), qp.get("q") || ""));
 
         // ---- admin: accounts
@@ -876,6 +886,36 @@ export class Hub {
     this.cachedConfig = cfg;
   }
 
+  /** All-time per-ad totals as a map {adId: {views, clicks}}. */
+  adTotals() {
+    const m = {};
+    try {
+      for (const r of this.sql.exec("SELECT ad_id, views, clicks FROM ad_totals").toArray()) {
+        m[r.ad_id] = { views: Number(r.views || 0), clicks: Number(r.clicks || 0) };
+      }
+    } catch (e) { /* ignore */ }
+    return m;
+  }
+
+  /** How many devices are watching an ad right now (prunes expired entries). */
+  adWatchersNow(now = Date.now()) {
+    for (const [d, exp] of this.adWatchers) if (exp <= now) this.adWatchers.delete(d);
+    if (this.adWatchers.size > 50000) this.adWatchers.clear();
+    return this.adWatchers.size;
+  }
+
+  /** A copy of the config with live per-ad view counts injected; never mutates the stored config. */
+  configWithAdViews(cfg) {
+    try {
+      if (!cfg || !cfg.ads || !Array.isArray(cfg.ads.items)) return cfg;
+      const totals = this.adTotals();
+      const items = cfg.ads.items.map((it) => ({ ...it, views: (totals[it.id] && totals[it.id].views) || 0 }));
+      return { ...cfg, ads: { ...cfg.ads, items } };
+    } catch (e) {
+      return cfg;
+    }
+  }
+
   async putConfig(cfg) {
     if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) return json({ error: "bad config" }, 400);
     const current = await this.getConfig();
@@ -1003,8 +1043,13 @@ export class Hub {
           add(day, ev.up ? "rate_up" : "rate_down", server);
           break;
         case "ad_view":
+          // Live gauge: this device is watching an ad right now (expires shortly).
+          this.adWatchers.set(device, now + 45000);
+          if (id) add(day, t, id);
+          break;
         case "ad_click":
         case "ad_done":
+          if (t === "ad_done") this.adWatchers.delete(device);
           if (id) add(day, t, id);
           break;
         case "free_timeout":
@@ -1055,6 +1100,15 @@ export class Hub {
         key,
         n,
       );
+      // Keep an all-time per-ad total (counters get purged; this does not), for the view cap.
+      if ((kind === "ad_view" || kind === "ad_click") && key) {
+        const col = kind === "ad_view" ? "views" : "clicks";
+        this.sql.exec(
+          `INSERT INTO ad_totals (ad_id, ${col}) VALUES (?, ?)
+           ON CONFLICT(ad_id) DO UPDATE SET ${col} = ad_totals.${col} + excluded.${col}`,
+          key, n,
+        );
+      }
     }
     if (Math.random() < 0.005) this.cleanup(now);
     return json({ ok: true, accepted: events.length });
@@ -1176,10 +1230,21 @@ export class Hub {
     }
     const todayRow = byDay.get(today) || { active: 0, connected: 0 };
 
+    // Real account (user) totals, separate from anonymous device telemetry.
+    const acc = this.sql.exec(
+      "SELECT COUNT(*) AS total, SUM(CASE WHEN pro_until > ? THEN 1 ELSE 0 END) AS pro FROM accounts",
+      now,
+    ).toArray()[0] || {};
+    const adTotalsSum = this.sql.exec("SELECT COALESCE(SUM(views),0) AS v FROM ad_totals").toArray()[0] || {};
+
     return {
       generatedAt: now,
       days,
       online: this.onlineCount(),
+      adWatchersNow: this.adWatchersNow(now),
+      totalAccounts: Number(acc.total) || 0,
+      proAccounts: Number(acc.pro) || 0,
+      adViewsAllTime: Number(adTotalsSum.v) || 0,
       totalDevices: Number(totals.devices) || 0,
       proDevices: Number(totals.pro) || 0,
       active7: Number(totals.active7) || 0,

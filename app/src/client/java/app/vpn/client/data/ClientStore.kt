@@ -107,6 +107,11 @@ class ClientStore(context: Context) {
         get() = prefs.getString("pro_info", "").orEmpty()
         set(v) = prefs.edit().putString("pro_info", v).apply()
 
+    /** Whether the first-run tutorial has been shown. */
+    var onboardingSeen: Boolean
+        get() = prefs.getBoolean("onboarding_seen", false)
+        set(v) = prefs.edit().putBoolean("onboarding_seen", v).apply()
+
     fun readFile(name: String): String? = try {
         val f = File(appContext.filesDir, name)
         if (f.exists()) f.readText() else null

@@ -283,6 +283,12 @@ private fun MainApp(activity: MainActivity) {
         WelcomeOverlay(activity, welcomeDays = welcome ?: 0, onDone = { AccountManager.pendingWelcome.value = null })
     }
 
+    // First-run tutorial (per device), drawn on top so new users see it first.
+    var onboarded by remember { mutableStateOf(store.onboardingSeen) }
+    if (!onboarded) {
+        OnboardingOverlay(onDone = { store.onboardingSeen = true; onboarded = true })
+    }
+
     SessionEndDialogs(
         activity = activity,
         onReconnect = { connect() },
@@ -320,7 +326,7 @@ private fun pickAd(activity: MainActivity): AdItem? {
     val cfg = ServerRepository.config.value.ads
     if (!cfg.enabled) return null
     if (ServerRepository.isPro(activity) && !cfg.showForPro) return null
-    val items = cfg.activeItems()
+    val items = cfg.activeItems("interstitial")
     if (items.isEmpty()) return null
     val total = items.sumOf { it.weight }
     var r = Random.nextInt(total)

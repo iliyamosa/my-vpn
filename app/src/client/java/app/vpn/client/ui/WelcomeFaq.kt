@@ -13,8 +13,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -30,6 +32,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -130,6 +134,66 @@ fun WelcomeOverlay(activity: MainActivity, welcomeDays: Int, onDone: () -> Unit)
             }
 
             GradientButton("شروع", onClick = onDone, enabled = !busy)
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+private data class OnboardStep(val icon: Int, val title: String, val body: String)
+
+private val ONBOARD_STEPS: List<OnboardStep> = listOf(
+    OnboardStep(R.drawable.ic_bolt, "اتصال سریع", "کافی است دکمهٔ بزرگ وسط صفحهٔ اصلی را بزنید تا به سریع‌ترین سرور وصل شوید. برای قطع، دوباره همان دکمه را بزنید."),
+    OnboardStep(R.drawable.ic_servers, "انتخاب و تست سرور", "روی کارت «سرور» بزنید تا لیست سرورها را ببینید، سرور دلخواه را انتخاب کنید یا با «تست سرعت» بهترین سرور خودکار انتخاب شود."),
+    OnboardStep(R.drawable.ic_crown, "اشتراک پرو", "با پرو به سرورهای اختصاصی پرسرعت می‌رسید، بدون محدودیت زمان و بدون تبلیغ. از کارت طلایی صفحهٔ اصلی وارد خرید شوید."),
+    OnboardStep(R.drawable.ic_gift, "امتیاز و دعوت دوستان", "با دعوت دوستان، هم شما و هم آن‌ها امتیاز می‌گیرید و با امتیاز می‌توانید پرو بگیرید. کد دعوت در بخش «امتیازها» است."),
+    OnboardStep(R.drawable.ic_user, "پروفایل و پشتیبانی", "از پروفایل به تنظیمات، سوالات متداول و ارتباط با پشتیبانی دسترسی دارید. هر سؤالی داشتید از همان‌جا با ما در تماس باشید."),
+)
+
+/** A one-time, step-by-step tutorial shown the first time the app opens. */
+@Composable
+fun OnboardingOverlay(onDone: () -> Unit) {
+    var step by remember { mutableStateOf(0) }
+    val s = ONBOARD_STEPS[step]
+    val last = step == ONBOARD_STEPS.lastIndex
+
+    Box(Modifier.fillMaxSize().background(AppColors.Background)) {
+        SpaceBackground(connected = false)
+        Column(
+            modifier = Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Spacer(Modifier.height(16.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                NeonWordmark(fontSize = 20.sp)
+                Text("رد کردن", style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted, modifier = Modifier.clickable { onDone() })
+            }
+            Spacer(Modifier.height(28.dp))
+            Box(
+                modifier = Modifier.size(96.dp).clip(CircleShape).background(AppColors.Primary.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center,
+            ) { AppIcon(s.icon, tint = AppColors.Primary, size = 46.dp) }
+            Spacer(Modifier.height(22.dp))
+            Text(s.title, style = MaterialTheme.typography.titleLarge, color = AppColors.TextPrimary, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(12.dp))
+            Text(s.body, style = MaterialTheme.typography.bodyMedium, color = AppColors.TextSecondary, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(24.dp))
+            // progress dots
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ONBOARD_STEPS.indices.forEach { i ->
+                    Box(
+                        Modifier.size(if (i == step) 10.dp else 7.dp).clip(CircleShape)
+                            .background(if (i == step) AppColors.Primary else AppColors.TextMuted.copy(alpha = 0.4f)),
+                    )
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+            GradientButton(if (last) "شروع" else "بعدی", onClick = { if (last) onDone() else step++ })
+            if (step > 0) {
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = { step-- }, shape = RoundedCornerShape(12.dp)) {
+                    Text("قبلی", color = AppColors.TextSecondary)
+                }
+            }
             Spacer(Modifier.height(24.dp))
         }
     }

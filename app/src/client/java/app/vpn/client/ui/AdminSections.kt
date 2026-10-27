@@ -23,6 +23,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,8 +38,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.vpn.client.MainActivity
+import app.vpn.common.AdItem
+import app.vpn.common.AdsConfig
 import app.vpn.common.AdminAccount
 import app.vpn.common.AdminApi
+import app.vpn.common.AdminStats
 import app.vpn.common.AuditLog
 import app.vpn.common.CryptoOrder
 import app.vpn.common.AdminMission
@@ -1016,5 +1020,250 @@ fun AdminConfig(activity: MainActivity, onBack: () -> Unit) {
         }
         AdminSaveButton("ذخیره و ارسال زنده", enabled = cfg != null && !saving) { save() }
         AdminMessage(msg, error)
+    }
+}
+
+// ---------------- Ads editor ----------------
+
+private fun adStatusLabel(ad: AdItem, now: Long): Pair<String, Color> = when {
+    !ad.enabled -> "خاموش" to AppColors.TextMuted
+    ad.limitKind == "views" && ad.maxViews > 0 && ad.views >= ad.maxViews -> "به سقف بازدید رسید" to AppColors.Danger
+    ad.limitKind == "time" && ad.expiresAt in 1 until now -> "منقضی شد" to AppColors.Danger
+    ad.limitKind == "time" && ad.expiresAt > now -> {
+        val rem = ad.expiresAt - now
+        val days = rem / 86400000L; val hours = (rem % 86400000L) / 3600000L
+        val t = if (days > 0) "$days روز دیگر" else if (hours > 0) "$hours ساعت دیگر" else "کمتر از یک ساعت"
+        "فعال • تا $t".faDigits() to AppColors.Connected
+    }
+    else -> "فعال" to AppColors.Connected
+}
+
+@Composable
+private fun AdminChoice(label: String, options: List<Pair<String, String>>, selected: String, onSelect: (String) -> Unit) {
+    Text(label, style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted)
+    Spacer(Modifier.height(4.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        options.forEach { (value, text) ->
+            val on = value == selected
+            Box(Modifier.weight(1f)) {
+                if (on) {
+                    Button(
+                        onClick = { onSelect(value) }, modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Violet, contentColor = Color.White),
+                        shape = RoundedCornerShape(10.dp),
+                    ) { Text(text, style = MaterialTheme.typography.bodySmall) }
+                } else {
+                    OutlinedButton(onClick = { onSelect(value) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp)) {
+                        Text(text, style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AdminAds(activity: MainActivity, onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val base = adminBase(); val token = adminToken(activity)
+    var cfg by remember { mutableStateOf<RemoteConfig?>(null) }
+    var msg by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
+    var adsEnabled by remember { mutableStateOf(false) }
+    var showForPro by remember { mutableStateOf(false) }
+    val items = remember { mutableStateListOf<AdItem>() }
+    val durVal = remember { mutableStateMapOf<String, String>() }
+    val durUnit = remember { mutableStateMapOf<String, String>() }
+    val now = System.currentTimeMillis()
+
+    fun load() {
+        scope.launch {
+            try {
+                val c = withContext(Dispatchers.IO) { AdminApi.getConfig(base, token) }
+                cfg = c; adsEnabled = c.ads.enabled; showForPro = c.ads.showForPro
+                items.clear(); items.addAll(c.ads.items)
+            } catch (e: Exception) { msg = e.message; error = true }
+        }
+    }
+    LaunchedEffect(Unit) { load() }
+
+    fun save() {
+        val base0 = cfg ?: return
+        saving = true
+        scope.launch {
+            try {
+                val updated = base0.copy(ads = AdsConfig(enabled = adsEnabled, showForPro = showForPro, items = items.toList()))
+                val delivered = withContext(Dispatchers.IO) { AdminApi.putConfig(base, token, updated) }
+                cfg = updated
+                msg = "ذخیره و برای $delivered برنامهٔ باز ارسال شد.".faDigits(); error = false
+            } catch (e: Exception) { msg = e.message; error = true } finally { saving = false }
+        }
+    }
+
+    AdminSectionScaffold("تبلیغات", onBack) {
+        Text(
+            "تبلیغ تمام‌صفحه پیش از اتصال نمایش داده می‌شود و بنر در صفحهٔ اصلی زیر کارت پرو. می‌توانی برای هر تبلیغ محدودیت زمانی (ساعتی/روزانه/ماهانه) یا سقف بازدید بگذاری؛ وقتی به محدودیت برسد خودکار خاموش می‌شود (پاک نمی‌شود) و هر وقت خواستی دوباره روشن یا تمدیدش کن.",
+            style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary,
+        )
+        AppCard {
+            AdminSwitchRow("نمایش تبلیغات فعال باشد", adsEnabled) { adsEnabled = it }
+            AdminSwitchRow("به کاربران پرو هم نشان داده شود", showForPro) { showForPro = it }
+        }
+
+        if (cfg == null && msg == null) Text("در حال بارگذاری…", style = MaterialTheme.typography.bodyMedium, color = AppColors.TextMuted)
+
+        items.forEachIndexed { i, ad ->
+            val (statusText, statusColor) = adStatusLabel(ad, now)
+            AppCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(ad.title.ifBlank { "تبلیغ بدون عنوان" }, style = MaterialTheme.typography.titleSmall)
+                        val place = if (ad.placement == "home") "بنر صفحهٔ اصلی" else "تمام‌صفحه"
+                        Text("$place • ${ad.views} بازدید".faDigits(), style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted)
+                    }
+                    Text(statusText, style = MaterialTheme.typography.bodySmall, color = statusColor)
+                }
+                Spacer(Modifier.height(8.dp))
+                AdminSwitchRow("روشن", ad.enabled) { items[i] = ad.copy(enabled = it) }
+                Spacer(Modifier.height(4.dp))
+                AdminChoice(
+                    "محل نمایش",
+                    listOf("interstitial" to "تمام‌صفحه", "home" to "صفحهٔ اصلی"),
+                    ad.placement.ifBlank { "interstitial" },
+                ) { items[i] = ad.copy(placement = it) }
+                Spacer(Modifier.height(8.dp))
+                AdminField("عنوان", ad.title, { items[i] = ad.copy(title = it) })
+                Spacer(Modifier.height(8.dp))
+                AdminField("متن", ad.text, { items[i] = ad.copy(text = it) }, singleLine = false)
+                Spacer(Modifier.height(8.dp))
+                AdminField("لینک تصویر (اختیاری)", ad.imageUrl, { items[i] = ad.copy(imageUrl = it) })
+                Spacer(Modifier.height(8.dp))
+                AdminField("لینک مقصد (با زدن دکمه باز می‌شود)", ad.link, { items[i] = ad.copy(link = it) })
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.weight(1f)) { AdminField("متن دکمه", ad.buttonText, { items[i] = ad.copy(buttonText = it) }) }
+                    if (ad.placement != "home") Box(Modifier.weight(1f)) {
+                        AdminField("ثانیه (تمام‌صفحه)", ad.seconds.toString(), { items[i] = ad.copy(seconds = it.filter { c -> c.isDigit() }.toIntOrNull()?.coerceIn(0, 60) ?: 0) }, number = true)
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                AdminChoice(
+                    "نوع محدودیت",
+                    listOf("none" to "بدون", "time" to "زمانی", "views" to "بازدید"),
+                    ad.limitKind.ifBlank { "none" },
+                ) { items[i] = ad.copy(limitKind = it) }
+                if (ad.limitKind == "time") {
+                    Spacer(Modifier.height(8.dp))
+                    val u = durUnit[ad.id] ?: "day"
+                    AdminChoice("واحد زمان", listOf("hour" to "ساعتی", "day" to "روزانه", "month" to "ماهانه"), u) { durUnit[ad.id] = it }
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f)) { AdminField("مدت", durVal[ad.id] ?: "", { durVal[ad.id] = it }, number = true) }
+                        Box(Modifier.weight(1f)) {
+                            Button(
+                                onClick = {
+                                    val n = (durVal[ad.id] ?: "").filter { c -> c.isDigit() }.toLongOrNull() ?: 0L
+                                    val unitMs = when (durUnit[ad.id] ?: "day") { "hour" -> 3600000L; "month" -> 30L * 86400000L; else -> 86400000L }
+                                    if (n > 0) items[i] = ad.copy(expiresAt = System.currentTimeMillis() + n * unitMs, enabled = true)
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = AppColors.Connected, contentColor = Color(0xFF05140F)),
+                                shape = RoundedCornerShape(12.dp),
+                            ) { Text("اعمال / تمدید") }
+                        }
+                    }
+                }
+                if (ad.limitKind == "views") {
+                    Spacer(Modifier.height(8.dp))
+                    AdminField("سقف بازدید (مثلاً ۱۰۰۰۰)", ad.maxViews.toString(), { items[i] = ad.copy(maxViews = it.filter { c -> c.isDigit() }.toIntOrNull() ?: 0) }, number = true)
+                    Spacer(Modifier.height(6.dp))
+                    Text("بازدید فعلی: ${ad.views}".faDigits(), style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted)
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                try {
+                                    withContext(Dispatchers.IO) { AdminApi.resetAdViews(base, token, ad.id) }
+                                    items[i] = ad.copy(views = 0, enabled = true)
+                                    msg = "شمارش بازدید صفر شد."; error = false
+                                } catch (e: Exception) { msg = e.message; error = true }
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                    ) { Text("صفر کردن بازدید و روشن کردن", color = AppColors.Primary) }
+                }
+                Spacer(Modifier.height(10.dp))
+                TextButton(onClick = { items.removeAt(i) }) { Text("حذف این تبلیغ", color = AppColors.Danger) }
+            }
+        }
+
+        OutlinedButton(
+            onClick = { items.add(AdItem(id = "ad" + System.currentTimeMillis().toString(36), enabled = true, placement = "interstitial", seconds = 5)) },
+            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+        ) { Text("+ افزودن تبلیغ", color = AppColors.Primary) }
+
+        AdminSaveButton("ذخیره و ارسال زنده", enabled = cfg != null && !saving) { save() }
+        AdminMessage(msg, error)
+    }
+}
+
+// ---------------- Live stats ----------------
+
+@Composable
+fun AdminStats(activity: MainActivity, onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val base = adminBase(); val token = adminToken(activity)
+    var s by remember { mutableStateOf<AdminStats?>(null) }
+    var msg by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(false) }
+
+    fun load() {
+        loading = true
+        scope.launch {
+            try { s = withContext(Dispatchers.IO) { AdminApi.summary(base, token) }; error = false; msg = null }
+            catch (e: Exception) { msg = e.message; error = true } finally { loading = false }
+        }
+    }
+    LaunchedEffect(Unit) { load() }
+
+    AdminSectionScaffold("آمار زنده", onBack) {
+        AdminMessage(msg, error)
+        val st = s
+        if (st == null) {
+            if (!error) Text("در حال بارگذاری…", style = MaterialTheme.typography.bodyMedium, color = AppColors.TextMuted)
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                Box(Modifier.weight(1f)) { StatTile("کل کاربران", st.totalAccounts.toString(), AppColors.Primary) }
+                Box(Modifier.weight(1f)) { StatTile("کاربران پرو", st.proAccounts.toString(), AppColors.Gold) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                Box(Modifier.weight(1f)) { StatTile("آنلاین همین حالا", st.onlineNow.toString(), AppColors.Connected) }
+                Box(Modifier.weight(1f)) { StatTile("در حال دیدن تبلیغ", st.adWatchersNow.toString(), AppColors.Violet) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                Box(Modifier.weight(1f)) { StatTile("فعال در ۷ روز", st.active7.toString(), AppColors.Primary) }
+                Box(Modifier.weight(1f)) { StatTile("کل بازدید تبلیغ", st.adViewsAllTime.toString(), AppColors.Violet) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                Box(Modifier.weight(1f)) { StatTile("فعال امروز", st.todayActive.toString(), AppColors.Connected) }
+                Box(Modifier.weight(1f)) { StatTile("متصل امروز", st.todayConnected.toString(), AppColors.Connected) }
+            }
+            Button(
+                onClick = { load() }, enabled = !loading, modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = AppColors.Violet, contentColor = Color.White),
+                shape = RoundedCornerShape(12.dp),
+            ) { Text(if (loading) "در حال تازه‌سازی…" else "تازه‌سازی") }
+        }
+    }
+}
+
+@Composable
+private fun StatTile(label: String, value: String, accent: Color) {
+    AppCard {
+        Text(value.faDigits(), style = MaterialTheme.typography.headlineSmall, color = accent)
+        Spacer(Modifier.height(2.dp))
+        Text(label, style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
     }
 }

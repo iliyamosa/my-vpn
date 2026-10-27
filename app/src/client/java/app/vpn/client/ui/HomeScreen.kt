@@ -1,5 +1,6 @@
 package app.vpn.client.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -35,6 +36,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -42,11 +45,14 @@ import app.vpn.BuildConfig
 import app.vpn.R
 import app.vpn.client.MainActivity
 import app.vpn.client.data.AccountManager
+import app.vpn.client.data.Analytics
 import app.vpn.client.data.ClientStore
 import app.vpn.client.data.NoticesStore
 import app.vpn.client.data.ServerRepository
 import app.vpn.client.vpn.VpnState
 import app.vpn.client.vpn.VpnStatus
+import app.vpn.common.AdItem
+import app.vpn.common.RemoteConfig
 import app.vpn.common.faDigits
 import app.vpn.common.formatBytes
 import app.vpn.ui.AppCard
@@ -277,6 +283,9 @@ fun HomeScreen(
                 }
             }
 
+            // Admin-placed home banner ad (below the pro card).
+            HomeAdBanner(activity, config, accountIsPro, onOpenPro)
+
             Spacer(Modifier.height(8.dp))
             Text(
                 "نسخه ${BuildConfig.VERSION_NAME}".faDigits(),
@@ -286,6 +295,70 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+/** A banner ad the admin places on the home screen (below the pro card). */
+@Composable
+private fun HomeAdBanner(activity: MainActivity, config: RemoteConfig, isPro: Boolean, onOpenPro: () -> Unit) {
+    val ads = config.ads
+    if (!ads.enabled) return
+    if (isPro && !ads.showForPro) return
+    val ad: AdItem = ads.activeItems("home").firstOrNull() ?: return
+
+    var image by remember(ad.id, ad.imageUrl) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(ad.id, ad.imageUrl) {
+        image = if (ad.imageUrl.isNotBlank()) loadAdImage(activity, ad.imageUrl) else null
+    }
+    // Count one view each time this banner appears for this ad.
+    LaunchedEffect(ad.id) { Analytics.track(activity, "ad_view", id = ad.id) }
+
+    fun open() {
+        if (ad.link.isBlank()) return
+        Analytics.track(activity, "ad_click", id = ad.id)
+        activity.openLink(ad.link)
+    }
+
+    Spacer(Modifier.height(4.dp))
+    AppCard(modifier = if (ad.link.isNotBlank()) Modifier.clickable { open() } else Modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("تبلیغ", style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted, modifier = Modifier.weight(1f))
+            if (!isPro) {
+                Text(
+                    "حذف تبلیغ‌ها با پرو",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = AppColors.Gold,
+                    modifier = Modifier.clickable { onOpenPro() },
+                )
+            }
+        }
+        val bmp = image
+        if (bmp != null) {
+            Spacer(Modifier.height(8.dp))
+            Image(
+                bitmap = bmp,
+                contentDescription = ad.title,
+                contentScale = ContentScale.FillWidth,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)),
+            )
+        }
+        if (ad.title.isNotBlank()) {
+            Spacer(Modifier.height(8.dp))
+            Text(ad.title, style = MaterialTheme.typography.titleSmall, color = AppColors.TextPrimary)
+        }
+        if (ad.text.isNotBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Text(ad.text, style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
+        }
+        if (ad.link.isNotBlank()) {
+            Spacer(Modifier.height(10.dp))
+            Button(
+                onClick = { open() },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = AppColors.Primary, contentColor = Color.White),
+                shape = RoundedCornerShape(12.dp),
+            ) { Text(ad.buttonText.ifBlank { "مشاهده" }) }
         }
     }
 }
