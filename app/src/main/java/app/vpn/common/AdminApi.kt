@@ -90,6 +90,9 @@ data class PaymentSettings(
     // Invite reward points (0 = invites give no points).
     val invitePointsInviter: Int = 0,
     val invitePointsInvitee: Int = 0,
+    // Welcome free-pro gift for new users.
+    val welcomeEnabled: Boolean = true,
+    val welcomeDays: Int = 3,
 )
 
 data class CryptoOrder(
@@ -306,6 +309,8 @@ object AdminApi {
         googleClientId = o.optString("googleClientId"),
         invitePointsInviter = o.optInt("invitePointsInviter"),
         invitePointsInvitee = o.optInt("invitePointsInvitee"),
+        welcomeEnabled = o.optBoolean("welcomeEnabled", true),
+        welcomeDays = o.optInt("welcomeDays", 3),
     )
 
     fun getSettings(base: String, token: String): PaymentSettings = parseSettings(post(base, "/admin/settings", token, JSONObject()))
@@ -315,7 +320,8 @@ object AdminApi {
             .put("cryptoEnabled", s.cryptoEnabled).put("cryptoAddresses", s.cryptoAddresses).put("cryptoNote", s.cryptoNote)
             .put("cardEnabled", s.cardEnabled).put("cardNumber", s.cardNumber).put("cardHolder", s.cardHolder).put("cardNote", s.cardNote)
             .put("googleClientId", s.googleClientId)
-            .put("invitePointsInviter", s.invitePointsInviter).put("invitePointsInvitee", s.invitePointsInvitee))
+            .put("invitePointsInviter", s.invitePointsInviter).put("invitePointsInvitee", s.invitePointsInvitee)
+            .put("welcomeEnabled", s.welcomeEnabled).put("welcomeDays", s.welcomeDays))
         return parseSettings(o)
     }
 

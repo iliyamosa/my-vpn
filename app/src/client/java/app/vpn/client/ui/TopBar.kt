@@ -27,11 +27,13 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import android.graphics.Bitmap
 import app.vpn.R
 import app.vpn.ui.AppColors
 import app.vpn.ui.AppIcon
-import app.vpn.ui.FairosWordmark
+import app.vpn.ui.NeonWordmark
+import app.vpn.ui.PresetAvatar
 
 /**
  * Home top bar: the FAIROS wordmark on the left, the notices bell and the profile avatar on the right.
@@ -42,6 +44,7 @@ fun HomeTopBar(
     avatar: Bitmap?,
     unreadNotices: Boolean,
     isPro: Boolean,
+    avatarPreset: Int = 0,
     onOpenNotices: () -> Unit,
     onOpenProfile: () -> Unit,
 ) {
@@ -53,7 +56,7 @@ fun HomeTopBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Spacer(Modifier.width(6.dp))
-            FairosWordmark(height = 22.dp)
+            NeonWordmark(fontSize = 20.sp)
             Spacer(Modifier.weight(1f))
             // Bell with an unread dot
             Box {
@@ -71,13 +74,13 @@ fun HomeTopBar(
                     )
                 }
             }
-            ProfileButton(avatar = avatar, isPro = isPro, onClick = onOpenProfile)
+            ProfileButton(avatar = avatar, isPro = isPro, avatarPreset = avatarPreset, onClick = onOpenProfile)
         }
     }
 }
 
 @Composable
-fun ProfileButton(avatar: Bitmap?, isPro: Boolean, onClick: () -> Unit) {
+fun ProfileButton(avatar: Bitmap?, isPro: Boolean, avatarPreset: Int = 0, onClick: () -> Unit) {
     val ring = if (isPro) AppColors.Gold else AppColors.Violet
     Box(
         modifier = Modifier
@@ -95,6 +98,8 @@ fun ProfileButton(avatar: Bitmap?, isPro: Boolean, onClick: () -> Unit) {
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.size(34.dp).clip(CircleShape),
             )
+        } else if (avatarPreset > 0) {
+            PresetAvatar(preset = avatarPreset, size = 34.dp)
         } else {
             AppIcon(R.drawable.ic_user, tint = AppColors.TextSecondary, size = 22.dp)
         }

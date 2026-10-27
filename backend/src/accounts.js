@@ -145,6 +145,12 @@ export function initAccountTables(sql) {
   // Invite anti-abuse: a device id can be the *invitee* only once, ever.
   sql.exec(`CREATE TABLE IF NOT EXISTS invite_claims (
     device_id TEXT PRIMARY KEY, invitee_id TEXT, inviter_id TEXT, created INTEGER)`);
+  // Chosen preset avatar (0 = default silhouette). Uploaded photos are no longer used.
+  addColumn(sql, "accounts", "avatar_preset", "INTEGER DEFAULT 0");
+  addColumn(sql, "accounts", "welcomed", "INTEGER DEFAULT 0");
+  // The welcome free-pro gift is given to a device only once (same anti-abuse reasoning as invites).
+  sql.exec(`CREATE TABLE IF NOT EXISTS welcomed_devices (
+    device_id TEXT PRIMARY KEY, account_id TEXT, created INTEGER)`);
 }
 
 /** Records a sensitive admin action. Never stores secrets, only what was changed. */
@@ -225,6 +231,8 @@ function publicAccount(sql, acc) {
     createdAt: Number(acc.created || 0),
     refCode: acc.id,
     hasAvatar: !!one(sql, "SELECT 1 FROM avatars WHERE account_id = ?", acc.id),
+    avatarPreset: Number(acc.avatar_preset || 0),
+    invitedBy: acc.invited_by || "",
   };
 }
 
@@ -292,6 +300,58 @@ export function applyInvite(sql, inviteeAcc, inviterCode, deviceId) {
   return { credited: true, inviterPoints: pInviter, inviteePoints: pInvitee };
 }
 
+function settingsInt(sql, key, def) {
+  const n = Number(kvGet(sql, key, String(def)));
+  return Number.isFinite(n) ? Math.trunc(n) : def;
+}
+
+/**
+ * Gives a new account the welcome free-pro gift, if enabled and this DEVICE has not had it before.
+ * Device-gated so one phone can't mint endless free pro via many Google accounts.
+ * Returns the number of days granted (0 if none).
+ */
+export function grantWelcomeIfEligible(sql, accId, deviceId) {
+  if (kvGet(sql, "welcome_enabled", "1") !== "1") return 0;
+  const days = settingsInt(sql, "welcome_days", 3);
+  if (days <= 0) return 0;
+  const dev = String(deviceId || "").trim();
+  if (!dev) return 0;
+  if (one(sql, "SELECT 1 FROM welcomed_devices WHERE device_id = ?", dev)) return 0;
+  grantPlan(sql, accId, { days });
+  sql.exec("INSERT INTO welcomed_devices (device_id, account_id, created) VALUES (?, ?, ?) ON CONFLICT(device_id) DO NOTHING", dev, accId, Date.now());
+  sql.exec("UPDATE accounts SET welcomed = 1 WHERE id = ?", accId);
+  return days;
+}
+
+/**
+ * Manually redeems an invite code after sign-up (used by the welcome screen, so Google users can
+ * also enter a code). Strict: errors on an already-invited account, an invalid/self code, or a
+ * device that was already an invitee. Rewards both sides.
+ */
+export function redeemInvite(sql, acc, body) {
+  const fresh = one(sql, "SELECT * FROM accounts WHERE id = ?", acc.id) || acc;
+  if (fresh.invited_by && String(fresh.invited_by).trim()) throw new ApiError(400, "شما قبلاً یک کد دعوت ثبت کرده‌اید.");
+  const code = String(body.code || body.ref || "").trim().slice(0, 32);
+  if (!code) throw new ApiError(400, "کد دعوت را وارد کنید.");
+  const device = cleanDevice(body.deviceId);
+  if (one(sql, "SELECT 1 FROM invite_claims WHERE device_id = ?", device)) {
+    throw new ApiError(400, "این دستگاه قبلاً با یک کد دعوت ثبت شده است. برای دعوت‌شدن باید از دستگاه دیگری استفاده کنید.");
+  }
+  const inviter = one(sql, "SELECT * FROM accounts WHERE id = ?", code);
+  if (!inviter || inviter.id === fresh.id) throw new ApiError(400, "کد دعوت معتبر نیست.");
+  const r = applyInvite(sql, fresh, code, device);
+  if (!r.credited) throw new ApiError(400, "ثبت کد دعوت ممکن نشد.");
+  const points = Number(one(sql, "SELECT points FROM accounts WHERE id = ?", fresh.id).points || 0);
+  return { ok: true, points, awardedInvitee: r.inviteePoints || 0, awardedInviter: r.inviterPoints || 0 };
+}
+
+/** Saves the user's chosen preset avatar (an index into the app's built-in set; 0 = default). */
+export function setAvatarPreset(sql, acc, body) {
+  const preset = Math.max(0, Math.min(99, Math.trunc(Number(body.preset || 0))));
+  sql.exec("UPDATE accounts SET avatar_preset = ?, updated = ? WHERE id = ?", preset, Date.now(), acc.id);
+  return { ok: true, avatarPreset: preset };
+}
+
 export async function register(sql, body) {
   const email = cleanEmail(body.email);
   const username = cleanUsername(body.username);
@@ -310,9 +370,10 @@ export async function register(sql, body) {
     id, device, String(body.model || "").slice(0, 60), now, now);
   let acc = one(sql, "SELECT * FROM accounts WHERE id = ?", id);
   applyInvite(sql, acc, body.ref, device); // device-aware; rewards both sides
-  acc = one(sql, "SELECT * FROM accounts WHERE id = ?", id); // refresh points/invited_by
+  const welcomeDays = grantWelcomeIfEligible(sql, id, device);
+  acc = one(sql, "SELECT * FROM accounts WHERE id = ?", id); // refresh points/invited_by/pro
   const token = await makeSession(sql, id, device, false, SESSION_DAYS);
-  return { token, account: publicAccount(sql, acc) };
+  return { token, account: publicAccount(sql, acc), isNew: true, welcomeDays };
 }
 
 export async function login(sql, body) {
@@ -340,7 +401,7 @@ export async function login(sql, body) {
       now, String(body.model || "").slice(0, 60), acc.id, device);
   }
   const token = await makeSession(sql, acc.id, device, false, SESSION_DAYS);
-  return { token, account: publicAccount(sql, acc) };
+  return { token, account: publicAccount(sql, acc), isNew: false };
 }
 
 export async function logout(sql, token) {
@@ -403,9 +464,10 @@ export async function googleUpsertLogin(sql, profile, body) {
       id, device, String(body.model || "").slice(0, 60), now, now);
     acc = one(sql, "SELECT * FROM accounts WHERE id = ?", id);
     applyInvite(sql, acc, body.ref, device); // only new Google accounts can use an invite code
+    const welcomeDays = grantWelcomeIfEligible(sql, id, device);
     acc = one(sql, "SELECT * FROM accounts WHERE id = ?", id);
     const token = await makeSession(sql, id, device, false, SESSION_DAYS);
-    return { token, account: publicAccount(sql, acc) };
+    return { token, account: publicAccount(sql, acc), isNew: true, welcomeDays };
   }
   // Existing account: enforce the 2-device limit just like password login.
   const existing = one(sql, "SELECT 1 FROM account_devices WHERE account_id = ? AND device_id = ?", acc.id, device);
@@ -423,7 +485,7 @@ export async function googleUpsertLogin(sql, profile, body) {
       now, String(body.model || "").slice(0, 60), acc.id, device);
   }
   const token = await makeSession(sql, acc.id, device, false, SESSION_DAYS);
-  return { token, account: publicAccount(sql, acc) };
+  return { token, account: publicAccount(sql, acc), isNew: false };
 }
 
 export async function adminLogin(sql, env, body) {
@@ -789,7 +851,7 @@ export function adminDecideCryptoOrder(sql, body) {
 export function missionsFor(sql, acc) {
   const done = new Set(all(sql, "SELECT mission_id FROM mission_done WHERE account_id = ?", acc.id).map((r) => r.mission_id));
   const referrals = Number(one(sql, "SELECT COUNT(*) AS n FROM accounts WHERE invited_by = ?", acc.id).n || 0);
-  const hasAvatar = !!one(sql, "SELECT 1 FROM avatars WHERE account_id = ?", acc.id);
+  const hasAvatar = !!one(sql, "SELECT 1 FROM avatars WHERE account_id = ?", acc.id) || Number(acc.avatar_preset || 0) > 0;
   return all(sql, "SELECT * FROM missions WHERE enabled = 1 ORDER BY sort DESC")
     .map((m) => {
       let progress = 0;
@@ -814,7 +876,7 @@ export function claimMission(sql, acc, body) {
   }
   const goal = Math.max(1, Number(m.goal || 1));
   let ok = false;
-  if (m.kind === "photo") ok = !!one(sql, "SELECT 1 FROM avatars WHERE account_id = ?", acc.id);
+  if (m.kind === "photo") ok = !!one(sql, "SELECT 1 FROM avatars WHERE account_id = ?", acc.id) || Number(acc.avatar_preset || 0) > 0;
   else if (m.kind === "invite") ok = Number(one(sql, "SELECT COUNT(*) AS n FROM accounts WHERE invited_by = ?", acc.id).n || 0) >= goal;
   else ok = body.confirm === true; // visit/custom: user confirms after doing it
   if (!ok) throw new ApiError(400, "هنوز شرط این ماموریت کامل نشده است.");

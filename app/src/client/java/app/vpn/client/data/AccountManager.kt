@@ -24,6 +24,8 @@ object AccountManager {
     val isAdmin = MutableStateFlow(false)
     /** The user's own avatar, decoded for display (null = show the default glyph). */
     val avatar = MutableStateFlow<Bitmap?>(null)
+    /** Set to the granted welcome days right after a NEW user signs up, so the UI shows the welcome screen once. */
+    val pendingWelcome = MutableStateFlow<Int?>(null)
 
     @Volatile private var loaded = false
 
@@ -137,10 +139,13 @@ object AccountManager {
 
     private fun cache(context: Context, acc: Account) {
         account.value = acc
+        // Reflect pro status instantly (don't wait for the periodic refresh).
+        ServerRepository.accountIsPro.value = acc.isPro
         ClientStore(context).accountJson = JSONObject()
             .put("id", acc.id).put("email", acc.email).put("username", acc.username)
             .put("displayName", acc.displayName).put("points", acc.points)
             .put("proUntil", acc.proUntil).put("isPro", acc.isPro).put("hasAvatar", acc.hasAvatar)
+            .put("avatarPreset", acc.avatarPreset).put("invitedBy", acc.invitedBy)
             .toString()
     }
 
@@ -152,6 +157,7 @@ object AccountManager {
                 store.authToken = auth.token
                 cache(context, auth.account)
                 loggedIn.value = true
+                if (auth.isNew) pendingWelcome.value = auth.welcomeDays
                 refreshMe(context)
                 Result.success(Unit)
             } catch (e: Exception) {
@@ -179,6 +185,28 @@ object AccountManager {
         try { AccountApi.googleConfig(base()) } catch (e: Exception) { "" }
     }
 
+    /** Redeems an invite code (welcome screen). Returns the new point total on success. */
+    suspend fun redeemInvite(context: Context, code: String): Result<Int> = withContext(Dispatchers.IO) {
+        val store = ClientStore(context)
+        if (store.authToken.isBlank()) return@withContext Result.failure(Exception("ابتدا وارد شوید."))
+        try {
+            val points = AccountApi.redeemInvite(base(), store.authToken, code.trim(), store.deviceId)
+            refreshMe(context)
+            Result.success(points)
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
+    /** Saves the chosen preset avatar index and updates the cached account. */
+    suspend fun setAvatarPreset(context: Context, preset: Int): Result<Unit> = withContext(Dispatchers.IO) {
+        val store = ClientStore(context)
+        if (store.authToken.isBlank()) return@withContext Result.failure(Exception("ابتدا وارد شوید."))
+        try {
+            AccountApi.setAvatarPreset(base(), store.authToken, preset)
+            account.value?.let { cache(context, it.copy(avatarPreset = preset)) }
+            Result.success(Unit)
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
     /** Completes sign-in with a Google ID token the app obtained via Credential Manager. */
     suspend fun googleLogin(context: Context, idToken: String, ref: String = ""): Result<Unit> =
         withContext(Dispatchers.IO) {
@@ -188,6 +216,7 @@ object AccountManager {
                 store.authToken = auth.token
                 cache(context, auth.account)
                 loggedIn.value = true
+                if (auth.isNew) pendingWelcome.value = auth.welcomeDays
                 refreshMe(context)
                 Result.success(Unit)
             } catch (e: Exception) {

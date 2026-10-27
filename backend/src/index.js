@@ -289,7 +289,7 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
-    if (path === "/") return json({ ok: true, service: "fairosvpn", build: "20261026-google" });
+    if (path === "/") return json({ ok: true, service: "fairosvpn", build: "20261027-welcome" });
     // The purchase website is served straight from the Worker.
     if (path === "/buy" || path === "/pay/callback") {
       const stub0 = env.HUB.get(env.HUB.idFromName("main"));
@@ -399,6 +399,8 @@ export class Hub {
         case "/me/device/remove": { const { acc } = await user(); return json(A.removeDevice(sql, acc, await body())); }
         case "/me/mission/claim": { const { acc } = await user(); return json(A.claimMission(sql, acc, await body())); }
         case "/me/redeem": { const { acc } = await user(); return json(A.redeemPlan(sql, acc, await body())); }
+        case "/me/redeem-invite": { const { acc } = await user(); return json(A.redeemInvite(sql, acc, await body())); }
+        case "/me/avatar-preset": { const { acc } = await user(); return json(A.setAvatarPreset(sql, acc, await body())); }
 
         // ---- admin: config + stats
         case "/admin/ping": await admin(); return json({ ok: true, online: this.onlineCount() });
@@ -487,6 +489,8 @@ export class Hub {
       if (typeof b.googleClientId === "string") A.kvSet(this.sql, "google_client_id", b.googleClientId.trim().slice(0, 200));
       if (b.invitePointsInviter !== undefined) A.kvSet(this.sql, "invite_points_inviter", String(Math.max(0, Math.trunc(Number(b.invitePointsInviter) || 0))));
       if (b.invitePointsInvitee !== undefined) A.kvSet(this.sql, "invite_points_invitee", String(Math.max(0, Math.trunc(Number(b.invitePointsInvitee) || 0))));
+      if (typeof b.welcomeEnabled === "boolean") A.kvSet(this.sql, "welcome_enabled", b.welcomeEnabled ? "1" : "0");
+      if (b.welcomeDays !== undefined) A.kvSet(this.sql, "welcome_days", String(Math.max(0, Math.min(365, Math.trunc(Number(b.welcomeDays) || 0)))));
       if (typeof b.beyEnabled === "boolean") A.kvSet(this.sql, "bey_enabled", b.beyEnabled ? "1" : "0");
       // API key and webhook secret are write-only: a blank value keeps the existing one.
       if (typeof b.beyApiKey === "string" && b.beyApiKey.trim()) A.kvSet(this.sql, "bey_api_key", b.beyApiKey.trim().slice(0, 2000));
@@ -511,6 +515,8 @@ export class Hub {
       googleClientId: A.kvGet(this.sql, "google_client_id", ""),
       invitePointsInviter: Number(A.kvGet(this.sql, "invite_points_inviter", "0")),
       invitePointsInvitee: Number(A.kvGet(this.sql, "invite_points_invitee", "0")),
+      welcomeEnabled: A.kvGet(this.sql, "welcome_enabled", "1") === "1",
+      welcomeDays: Number(A.kvGet(this.sql, "welcome_days", "3")),
       beyEnabled: A.kvGet(this.sql, "bey_enabled", "0") === "1",
       // Never send the full API key back; just whether one is set.
       beyApiKeySet: !!beyKey,

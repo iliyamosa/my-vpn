@@ -104,6 +104,7 @@ fun HomeScreen(
             avatar = avatar,
             unreadNotices = unread,
             isPro = accountIsPro,
+            avatarPreset = account?.avatarPreset ?: 0,
             onOpenNotices = onOpenNotices,
             onOpenProfile = onOpenProfile,
         )

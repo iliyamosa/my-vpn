@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { Hub, dayOf } from "../src/index.js";
-import { hashPassword, validateGoogleClaims, googleUpsertLogin, applyInvite, ApiError } from "../src/accounts.js";
+import { hashPassword, validateGoogleClaims, googleUpsertLogin, applyInvite, ApiError, redeemInvite, setAvatarPreset } from "../src/accounts.js";
 
 function makeSql() {
   const db = new DatabaseSync(":memory:");
@@ -44,6 +44,9 @@ let r = await call(hub, "POST", "/auth/admin-login", { username: "iliyamosa", pa
 assert.equal(r.status, 401, "wrong admin password rejected");
 r = await call(hub, "POST", "/auth/admin-login", { username: "iliyamosa", password: "admintest" });
 assert.equal(r.status, 200); const adminToken = r.data.token; assert.ok(adminToken);
+
+// Disable the welcome gift for the bulk of the suite so existing isPro assertions hold.
+await call(hub, "POST", "/admin/settings", { welcomeEnabled: false }, adminToken);
 
 // admin routes need the token
 r = await call(hub, "GET", "/admin/accounts");
@@ -309,6 +312,48 @@ const selfBefore = (await call(hub, "GET", "/me", undefined, bossTok)).data.acco
 applyInvite(hub.sql, { id: bossId }, bossId, "device-boss00099");
 r = await call(hub, "GET", "/me", undefined, bossTok);
 assert.equal(r.data.account.points, selfBefore, "self-invite credits nothing");
+
+// ---- welcome free-pro gift (device-gated) + isNew flag ----
+r = await call(hub, "POST", "/admin/settings", { welcomeEnabled: true, welcomeDays: 2 }, adminToken);
+assert.equal(r.status, 200); assert.equal(r.data.welcomeDays, 2); assert.equal(r.data.welcomeEnabled, true);
+r = await call(hub, "POST", "/auth/register", { email: "wel1@mail.com", username: "wel1", password: "secret1", deviceId: "device-wel000001" });
+assert.equal(r.status, 200); assert.equal(r.data.isNew, true); assert.equal(r.data.welcomeDays, 2, "welcome days granted");
+assert.equal(r.data.account.isPro, true, "welcome pro active immediately on sign-up");
+const wel1Tok = r.data.token;
+// second account on the SAME device gets no second gift
+r = await call(hub, "POST", "/auth/register", { email: "wel2@mail.com", username: "wel2", password: "secret1", deviceId: "device-wel000001" });
+assert.equal(r.data.welcomeDays, 0, "same device cannot claim the welcome gift twice");
+assert.equal(r.data.account.isPro, false);
+// disabling turns it off
+await call(hub, "POST", "/admin/settings", { welcomeEnabled: false }, adminToken);
+r = await call(hub, "POST", "/auth/register", { email: "wel3@mail.com", username: "wel3", password: "secret1", deviceId: "device-wel000003" });
+assert.equal(r.data.welcomeDays, 0, "welcome disabled -> no gift"); assert.equal(r.data.account.isPro, false);
+
+// ---- preset avatar persists ----
+r = await call(hub, "POST", "/me/avatar-preset", { preset: 4 }, wel1Tok);
+assert.equal(r.status, 200); assert.equal(r.data.avatarPreset, 4);
+r = await call(hub, "GET", "/me", undefined, wel1Tok);
+assert.equal(r.data.account.avatarPreset, 4, "preset persisted on the account");
+
+// ---- manual invite redeem endpoint (welcome screen) ----
+await call(hub, "POST", "/admin/settings", { invitePointsInviter: 40, invitePointsInvitee: 25 }, adminToken);
+r = await call(hub, "POST", "/auth/register", { email: "rinv1@mail.com", username: "rinv1", password: "secret1", deviceId: "device-rinv00001" });
+const rinv1Tok = r.data.token; const rinv1Base = r.data.account.points;
+r = await call(hub, "POST", "/me/redeem-invite", { code: aliId, deviceId: "device-rinv00001" }, rinv1Tok);
+assert.equal(r.status, 200, JSON.stringify(r.data)); assert.equal(r.data.awardedInvitee, 25); assert.equal(r.data.awardedInviter, 40);
+r = await call(hub, "GET", "/me", undefined, rinv1Tok);
+assert.equal(r.data.account.points, rinv1Base + 25, "invitee credited via endpoint");
+// cannot redeem twice
+r = await call(hub, "POST", "/me/redeem-invite", { code: aliId, deviceId: "device-rinv00001" }, rinv1Tok);
+assert.equal(r.status, 400, "cannot redeem an invite twice");
+// a different new account on the SAME device cannot be invited
+r = await call(hub, "POST", "/auth/register", { email: "rinv2@mail.com", username: "rinv2", password: "secret1", deviceId: "device-rinv00002" });
+const rinv2Tok = r.data.token;
+r = await call(hub, "POST", "/me/redeem-invite", { code: aliId, deviceId: "device-rinv00001" }, rinv2Tok);
+assert.equal(r.status, 400, "device already used as an invitee");
+// invalid code rejected
+r = await call(hub, "POST", "/me/redeem-invite", { code: "deadbeefdead", deviceId: "device-rinv00002" }, rinv2Tok);
+assert.equal(r.status, 400, "invalid invite code rejected");
 
 assert.equal(dayOf(Date.UTC(2026, 9, 20, 20, 31)), "2026-10-21");
 console.log("ALL BACKEND TESTS PASSED");

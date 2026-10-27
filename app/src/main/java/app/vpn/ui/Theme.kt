@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -234,6 +236,50 @@ fun FairosWordmark(modifier: Modifier = Modifier, height: Dp = 22.dp) {
         modifier = modifier.height(height),
         contentScale = androidx.compose.ui.layout.ContentScale.Fit,
     )
+}
+
+/** The app name written in the neon brand gradient with a soft glow — replaces the wordmark image. */
+@Composable
+fun NeonWordmark(modifier: Modifier = Modifier, fontSize: androidx.compose.ui.unit.TextUnit = 22.sp) {
+    Text(
+        text = "FAIROS VPN",
+        style = MaterialTheme.typography.titleLarge.copy(
+            brush = brandBrush(),
+            fontWeight = FontWeight.Black,
+            fontSize = fontSize,
+            letterSpacing = 1.sp,
+            shadow = androidx.compose.ui.graphics.Shadow(
+                color = AppColors.Violet.copy(alpha = 0.6f),
+                offset = androidx.compose.ui.geometry.Offset(0f, 0f),
+                blurRadius = 24f,
+            ),
+        ),
+        modifier = modifier,
+    )
+}
+
+/** Preset avatar colors (index 1..8); index 0 renders the neutral default. */
+val avatarPalette = listOf(
+    listOf(AppColors.Blue, AppColors.Violet),
+    listOf(AppColors.Magenta, AppColors.Violet),
+    listOf(AppColors.Connected, AppColors.Blue),
+    listOf(AppColors.Gold, Color(0xFFE0A92E)),
+    listOf(AppColors.Danger, AppColors.Magenta),
+    listOf(Color(0xFF5BE0FF), AppColors.Blue),
+    listOf(AppColors.TextSecondary, AppColors.TextMuted),
+    listOf(AppColors.Connecting, AppColors.Danger),
+)
+
+/** A built-in preset avatar: a colored gradient disc with the user glyph. preset 0 = neutral default. */
+@Composable
+fun PresetAvatar(preset: Int, size: Dp, modifier: Modifier = Modifier) {
+    val colors = if (preset in 1..avatarPalette.size) avatarPalette[preset - 1] else listOf(AppColors.SurfaceHigh, AppColors.Surface)
+    Box(
+        modifier = modifier.size(size).clip(CircleShape).background(Brush.linearGradient(colors)),
+        contentAlignment = Alignment.Center,
+    ) {
+        AppIcon(R.drawable.ic_user, tint = Color.White, size = size * 0.52f)
+    }
 }
 
 /** Text painted with the brand gradient. */

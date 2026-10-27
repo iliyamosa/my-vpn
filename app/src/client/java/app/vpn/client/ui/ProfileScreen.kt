@@ -62,6 +62,7 @@ fun ProfileScreen(
     onOpenSettings: () -> Unit,
     onOpenDiagnostics: () -> Unit,
     onOpenAdmin: () -> Unit,
+    onOpenFaq: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val account by AccountManager.account.collectAsState()
@@ -92,6 +93,7 @@ fun ProfileScreen(
                         contentAlignment = Alignment.Center,
                     ) {
                         val a = avatar
+                        val preset = account?.avatarPreset ?: 0
                         if (a != null) {
                             Image(
                                 bitmap = a.asImageBitmap(),
@@ -99,6 +101,8 @@ fun ProfileScreen(
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.size(56.dp).clip(CircleShape),
                             )
+                        } else if (preset > 0) {
+                            app.vpn.ui.PresetAvatar(preset = preset, size = 56.dp)
                         } else {
                             AppIcon(R.drawable.ic_user, tint = AppColors.TextSecondary, size = 30.dp)
                         }
@@ -132,6 +136,8 @@ fun ProfileScreen(
                 MenuRow(R.drawable.ic_gift, "امتیازها و ماموریت‌ها", "با انجام ماموریت‌ها پرو بگیرید", onOpenPoints)
                 MenuRow(R.drawable.ic_apps, "برنامه‌ها و تونل انتخابی", "انتخاب اینکه کدام برنامه‌ها از VPN استفاده کنند", onOpenApps)
                 MenuRow(R.drawable.ic_bell, "اعلان‌ها", "پیام‌های مدیریت", onOpenNotices)
+                MenuRow(R.drawable.ic_info, "سوالات متداول", "پاسخ پرسش‌های رایج درباره برنامه", onOpenFaq)
+                MenuRow(R.drawable.ic_send, "ارتباط با پشتیبانی", "ارسال پیام به تیم پشتیبانی", { emailSupport(activity) })
                 MenuRow(R.drawable.ic_tune, "تنظیمات", "گزینه‌های اتصال و برنامه", onOpenSettings)
                 MenuRow(R.drawable.ic_refresh, "عیب‌یابی اتصال", "بررسی وضعیت سرور و شبکه", onOpenDiagnostics, last = !isAdmin)
                 if (isAdmin) {
@@ -170,6 +176,18 @@ fun ProfileScreen(
 @Composable
 fun MenuCard(content: @Composable () -> Unit) {
     AppCard { content() }
+}
+
+/** Opens the Gmail app (falling back to any email app) composing a message to support. */
+private fun emailSupport(activity: MainActivity) {
+    val uri = android.net.Uri.parse("mailto:fiaros705@gmail.com?subject=" + android.net.Uri.encode("پشتیبانی FAIROS VPN"))
+    val base = android.content.Intent(android.content.Intent.ACTION_SENDTO, uri)
+    try {
+        activity.startActivity(android.content.Intent(base).setPackage("com.google.android.gm"))
+    } catch (e: Exception) {
+        try { activity.startActivity(android.content.Intent.createChooser(base, "ارسال ایمیل")) }
+        catch (e2: Exception) { activity.toast("برنامه‌ی ایمیلی روی گوشی پیدا نشد.") }
+    }
 }
 
 @Composable

@@ -590,6 +590,8 @@ fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
     var googleClientId by remember { mutableStateOf("") }
     var inviteInviter by remember { mutableStateOf("0") }
     var inviteInvitee by remember { mutableStateOf("0") }
+    var welcomeEnabled by remember { mutableStateOf(true) }
+    var welcomeDays by remember { mutableStateOf("3") }
     var msg by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
@@ -604,6 +606,7 @@ fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
         cardEnabled = s.cardEnabled; cardNumber = s.cardNumber; cardHolder = s.cardHolder; cardNote = s.cardNote
         googleClientId = s.googleClientId
         inviteInviter = s.invitePointsInviter.toString(); inviteInvitee = s.invitePointsInvitee.toString()
+        welcomeEnabled = s.welcomeEnabled; welcomeDays = s.welcomeDays.toString()
     }
 
     LaunchedEffect(Unit) {
@@ -624,6 +627,8 @@ fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
                         googleClientId = googleClientId.trim(),
                         invitePointsInviter = inviteInviter.trim().toIntOrNull() ?: 0,
                         invitePointsInvitee = inviteInvitee.trim().toIntOrNull() ?: 0,
+                        welcomeEnabled = welcomeEnabled,
+                        welcomeDays = welcomeDays.trim().toIntOrNull() ?: 0,
                     ))
                 }
                 apply(s)
@@ -693,6 +698,20 @@ fun AdminPayment(activity: MainActivity, onBack: () -> Unit) {
             AdminField("امتیاز به دعوت‌کننده", inviteInviter, { inviteInviter = it }, number = true)
             Spacer(Modifier.height(8.dp))
             AdminField("امتیاز به دعوت‌شونده", inviteInvitee, { inviteInvitee = it }, number = true)
+        }
+
+        // ---- welcome gift for new users ----
+        AppCard {
+            Text("هدیهٔ خوش‌آمدگویی", style = MaterialTheme.typography.titleSmall, color = AppColors.Gold)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "به کاربران تازه‌وارد چند روز اشتراک پرو رایگان بده. هر گوشی فقط یک‌بار این هدیه را می‌گیرد (ضدِ تقلب). ۰ یا خاموش یعنی بدون هدیه.",
+                style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary,
+            )
+            Spacer(Modifier.height(10.dp))
+            AdminSwitchRow("فعال باشد", welcomeEnabled) { welcomeEnabled = it }
+            Spacer(Modifier.height(8.dp))
+            AdminField("تعداد روزهای پرو رایگان", welcomeDays, { welcomeDays = it }, number = true)
         }
 
         AdminSaveButton("ذخیره", enabled = loaded && !saving) { save() }

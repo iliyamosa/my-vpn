@@ -83,47 +83,49 @@ fun InfoScreen(activity: MainActivity, onBack: () -> Unit) {
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // Avatar
+            // Avatar: pick from built-in presets (no upload — keeps the app light and private).
+            var preset by remember(account?.avatarPreset) { mutableStateOf(account?.avatarPreset ?: 0) }
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Box(
-                    modifier = Modifier
-                        .size(96.dp)
-                        .clip(CircleShape)
-                        .border(2.dp, AppColors.Violet, CircleShape)
-                        .background(AppColors.SurfaceHigh)
-                        .clickable {
-                            activity.pickAvatar { dataUrl ->
-                                if (dataUrl == null) return@pickAvatar
-                                scope.launch {
-                                    busy = true
-                                    val r = AccountManager.uploadAvatar(activity, dataUrl)
-                                    busy = false
-                                    r.onSuccess { say("تصویر پروفایل به‌روز شد.", false) }
-                                    r.onFailure { say(it.message ?: "خطا در ذخیره تصویر.", true) }
-                                }
+                if (preset > 0) {
+                    app.vpn.ui.PresetAvatar(preset = preset, size = 96.dp)
+                } else {
+                    Box(
+                        modifier = Modifier.size(96.dp).clip(CircleShape).border(2.dp, AppColors.Violet, CircleShape).background(AppColors.SurfaceHigh),
+                        contentAlignment = Alignment.Center,
+                    ) { AppIcon(R.drawable.ic_user, tint = AppColors.TextSecondary, size = 40.dp) }
+                }
+            }
+            AppCard {
+                Text("تصویر پروفایل", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "یکی از تصویرهای آماده را انتخاب کنید. انتخاب شما ذخیره می‌شود و تا وقتی خودتان عوضش نکنید، تغییر نمی‌کند.",
+                    style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary,
+                )
+                Spacer(Modifier.height(12.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    listOf(listOf(1, 2, 3, 4), listOf(5, 6, 7, 8)).forEach { rowItems ->
+                        Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
+                            rowItems.forEach { p ->
+                                val selected = preset == p
+                                Box(
+                                    modifier = Modifier.size(58.dp).clip(CircleShape)
+                                        .border(if (selected) 3.dp else 1.dp, if (selected) AppColors.Primary else AppColors.Border, CircleShape)
+                                        .clickable {
+                                            preset = p
+                                            scope.launch {
+                                                val r = AccountManager.setAvatarPreset(activity, p)
+                                                r.onSuccess { say("تصویر پروفایل ذخیره شد.", false) }
+                                                r.onFailure { say(it.message ?: "خطا در ذخیره.", true) }
+                                            }
+                                        },
+                                    contentAlignment = Alignment.Center,
+                                ) { app.vpn.ui.PresetAvatar(preset = p, size = 52.dp) }
                             }
-                        },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    val a = avatar
-                    if (a != null) {
-                        Image(
-                            bitmap = a.asImageBitmap(),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.size(88.dp).clip(CircleShape),
-                        )
-                    } else {
-                        AppIcon(R.drawable.ic_camera, tint = AppColors.TextSecondary, size = 34.dp)
+                        }
                     }
                 }
             }
-            Text(
-                "برای تغییر تصویر، روی آن ضربه بزنید. فقط همان عکسی که انتخاب می‌کنید فرستاده می‌شود.",
-                style = MaterialTheme.typography.bodySmall,
-                color = AppColors.TextMuted,
-                modifier = Modifier.fillMaxWidth(),
-            )
 
             // Identity
             AppCard {

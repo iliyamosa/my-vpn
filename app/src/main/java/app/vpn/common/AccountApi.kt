@@ -14,6 +14,8 @@ data class Account(
     val proUntil: Long,
     val isPro: Boolean,
     val hasAvatar: Boolean,
+    val avatarPreset: Int = 0,
+    val invitedBy: String = "",
 ) {
     val refCode: String get() = id
 
@@ -27,6 +29,8 @@ data class Account(
             proUntil = o.optLong("proUntil"),
             isPro = o.optBoolean("isPro"),
             hasAvatar = o.optBoolean("hasAvatar"),
+            avatarPreset = o.optInt("avatarPreset"),
+            invitedBy = o.optString("invitedBy"),
         )
     }
 }
@@ -108,19 +112,20 @@ object AccountApi {
 
     // ---- auth ----
 
-    class Auth(val token: String, val account: Account)
+    class Auth(val token: String, val account: Account, val isNew: Boolean = false, val welcomeDays: Int = 0)
+    private fun authFrom(o: JSONObject) = Auth(o.optString("token"), Account.from(o.getJSONObject("account")), o.optBoolean("isNew"), o.optInt("welcomeDays"))
 
     fun register(base: String, email: String, username: String, password: String, displayName: String, deviceId: String, model: String, ref: String): Auth {
         val o = post(base, "/auth/register", JSONObject()
             .put("email", email).put("username", username).put("password", password)
             .put("displayName", displayName).put("deviceId", deviceId).put("model", model).put("ref", ref))
-        return Auth(o.optString("token"), Account.from(o.getJSONObject("account")))
+        return authFrom(o)
     }
 
     fun login(base: String, login: String, password: String, deviceId: String, model: String): Auth {
         val o = post(base, "/auth/login", JSONObject()
             .put("login", login).put("password", password).put("deviceId", deviceId).put("model", model))
-        return Auth(o.optString("token"), Account.from(o.getJSONObject("account")))
+        return authFrom(o)
     }
 
     fun adminLogin(base: String, username: String, password: String): String {
@@ -135,7 +140,18 @@ object AccountApi {
     fun googleLogin(base: String, idToken: String, deviceId: String, model: String, ref: String = ""): Auth {
         val o = post(base, "/auth/google", JSONObject()
             .put("idToken", idToken).put("deviceId", deviceId).put("model", model).put("ref", ref))
-        return Auth(o.optString("token"), Account.from(o.getJSONObject("account")))
+        return authFrom(o)
+    }
+
+    /** Redeems an invite code after sign-up (welcome screen). Returns the user's new point total. */
+    fun redeemInvite(base: String, token: String, code: String, deviceId: String): Int {
+        val o = post(base, "/me/redeem-invite", JSONObject().put("code", code).put("deviceId", deviceId), token)
+        return o.optInt("points")
+    }
+
+    /** Saves the chosen preset avatar index on the account. */
+    fun setAvatarPreset(base: String, token: String, preset: Int) {
+        post(base, "/me/avatar-preset", JSONObject().put("preset", preset), token)
     }
 
     fun logout(base: String, token: String) {

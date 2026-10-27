@@ -39,7 +39,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 
-enum class Screen { HOME, SERVERS, PRO, PROFILE, INFO, APPS, POINTS, NOTICES, SETTINGS, DIAG, ADMIN }
+enum class Screen { HOME, SERVERS, PRO, PROFILE, INFO, APPS, POINTS, NOTICES, SETTINGS, DIAG, ADMIN, FAQ }
 
 @Composable
 fun ClientApp(activity: MainActivity) {
@@ -79,11 +79,14 @@ private fun MainApp(activity: MainActivity) {
     // Load account details + servers + notices on first entry and whenever we return to the foreground.
     var lastRefresh by remember { mutableStateOf(0L) }
     LaunchedEffect(resumed) {
-        if (resumed && System.currentTimeMillis() - lastRefresh > 120_000) {
-            lastRefresh = System.currentTimeMillis()
+        if (resumed) {
+            // Always refresh the account on foreground so pro status is instant (it is a cheap call).
             scope.launch { AccountManager.refreshMe(activity) }
-            scope.launch { NoticesStore.refresh(activity) }
-            ServerRepository.refreshAll(activity)
+            if (System.currentTimeMillis() - lastRefresh > 120_000) {
+                lastRefresh = System.currentTimeMillis()
+                scope.launch { NoticesStore.refresh(activity) }
+                ServerRepository.refreshAll(activity)
+            }
         }
     }
     // After connecting, refresh again through the tunnel (works even when GitHub is filtered).
@@ -183,7 +186,7 @@ private fun MainApp(activity: MainActivity) {
     }
 
     BackHandler(enabled = screen != Screen.HOME && ad == null) {
-        screen = if (screen == Screen.INFO || screen == Screen.APPS || screen == Screen.POINTS) Screen.PROFILE else Screen.HOME
+        screen = if (screen == Screen.INFO || screen == Screen.APPS || screen == Screen.POINTS || screen == Screen.FAQ) Screen.PROFILE else Screen.HOME
     }
     BackHandler(enabled = ad != null) {
         ad = null
@@ -236,8 +239,10 @@ private fun MainApp(activity: MainActivity) {
                     onOpenSettings = { screen = Screen.SETTINGS },
                     onOpenDiagnostics = { screen = Screen.DIAG },
                     onOpenAdmin = { screen = Screen.ADMIN },
+                    onOpenFaq = { screen = Screen.FAQ },
                 )
 
+                Screen.FAQ -> FaqScreen(onBack = { screen = Screen.PROFILE })
                 Screen.INFO -> InfoScreen(activity = activity, onBack = { screen = Screen.PROFILE })
                 Screen.APPS -> AppsScreen(activity = activity, onBack = { screen = Screen.PROFILE }, onChanged = { reconnectIfNeeded() })
                 Screen.POINTS -> PointsScreen(activity = activity, onBack = { screen = Screen.PROFILE }, onOpenPro = { screen = Screen.PRO })
@@ -270,6 +275,12 @@ private fun MainApp(activity: MainActivity) {
                 )
             }
         }
+    }
+
+    // One-time welcome for a brand-new user (free-pro gift + optional invite code).
+    val welcome by AccountManager.pendingWelcome.collectAsState()
+    if (welcome != null) {
+        WelcomeOverlay(activity, welcomeDays = welcome ?: 0, onDone = { AccountManager.pendingWelcome.value = null })
     }
 
     SessionEndDialogs(
