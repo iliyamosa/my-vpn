@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -41,6 +42,7 @@ import app.vpn.client.MainActivity
 import app.vpn.common.AdItem
 import app.vpn.common.AdsConfig
 import app.vpn.common.AdminAccount
+import app.vpn.common.AdminAlert
 import app.vpn.common.AdminApi
 import app.vpn.common.AdminStats
 import app.vpn.common.AuditLog
@@ -1265,5 +1267,83 @@ private fun StatTile(label: String, value: String, accent: Color) {
         Text(value.faDigits(), style = MaterialTheme.typography.headlineSmall, color = accent)
         Spacer(Modifier.height(2.dp))
         Text(label, style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
+    }
+}
+
+// ---------------- Instant messages + payment alerts ----------------
+
+@Composable
+fun AdminNotify(activity: MainActivity, onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val base = adminBase(); val token = adminToken(activity)
+    var title by remember { mutableStateOf("") }
+    var body by remember { mutableStateOf("") }
+    var sending by remember { mutableStateOf(false) }
+    var msg by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf(false) }
+    var alerts by remember { mutableStateOf<List<AdminAlert>>(emptyList()) }
+
+    fun loadAlerts() {
+        scope.launch {
+            try {
+                alerts = withContext(Dispatchers.IO) { AdminApi.adminAlerts(base, token).items }
+                // Viewing this screen clears the unread badge.
+                withContext(Dispatchers.IO) { AdminApi.markAlertsSeen(base, token) }
+            } catch (e: Exception) { /* keep what we have */ }
+        }
+    }
+    LaunchedEffect(Unit) { loadAlerts() }
+
+    fun send() {
+        if (title.isBlank() && body.isBlank()) { msg = "متن پیام را وارد کنید."; error = true; return }
+        sending = true; msg = null
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { AdminApi.broadcast(base, token, title.trim(), body.trim()) }
+                msg = "پیام برای همهٔ کاربران ارسال شد."; error = false; title = ""; body = ""
+            } catch (e: Exception) { msg = e.message; error = true } finally { sending = false }
+        }
+    }
+
+    AdminSectionScaffold("پیام فوری و هشدارها", onBack) {
+        AppCard {
+            Text("ارسال پیام فوری به همهٔ کاربران", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "این پیام بلافاصله در زنگولهٔ اعلان‌های همهٔ کاربران نشان داده می‌شود (جدا از «بُرد اعلان»).",
+                style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary,
+            )
+            Spacer(Modifier.height(10.dp))
+            AdminField("عنوان (اختیاری)", title, { title = it })
+            Spacer(Modifier.height(8.dp))
+            AdminField("متن پیام", body, { body = it }, singleLine = false)
+            Spacer(Modifier.height(10.dp))
+            AdminSaveButton("ارسال به همه", enabled = !sending) { send() }
+            AdminMessage(msg, error)
+        }
+
+        Text("هشدارهای واریز", style = MaterialTheme.typography.titleSmall, color = AppColors.TextPrimary)
+        Text(
+            "وقتی کاربری واریز ثبت کند، اینجا و روی «تأیید پرداخت‌ها» هشدار می‌بینی.",
+            style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary,
+        )
+        if (alerts.isEmpty()) {
+            Text("فعلاً هشداری نیست.", style = MaterialTheme.typography.bodyMedium, color = AppColors.TextMuted)
+        }
+        alerts.forEach { a ->
+            AppCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val dot = if (a.kind == "payment") AppColors.Gold else AppColors.Primary
+                    Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(dot))
+                    Spacer(Modifier.width(8.dp))
+                    Text(a.title.ifBlank { "هشدار" }, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                    Text(relativeTime(a.created).faDigits(), style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted)
+                }
+                if (a.body.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(a.body, style = MaterialTheme.typography.bodyMedium, color = AppColors.TextSecondary)
+                }
+            }
+        }
     }
 }

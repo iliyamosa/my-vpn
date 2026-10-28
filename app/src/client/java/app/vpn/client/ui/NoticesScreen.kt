@@ -84,7 +84,7 @@ fun NoticesScreen(activity: MainActivity, onBack: () -> Unit) {
     }
 }
 
-private fun relativeTime(ts: Long): String {
+internal fun relativeTime(ts: Long): String {
     val diff = System.currentTimeMillis() - ts
     val mins = diff / 60_000
     val hours = mins / 60

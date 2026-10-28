@@ -129,6 +129,17 @@ data class AdminStats(
     val generatedAt: Long = 0,
 )
 
+data class AdminAlert(
+    val id: String = "",
+    val kind: String = "info",
+    val title: String = "",
+    val body: String = "",
+    val ref: String = "",
+    val created: Long = 0,
+)
+
+data class AdminAlerts(val unread: Int = 0, val items: List<AdminAlert> = emptyList())
+
 data class AuditLog(
     val actor: String,
     val action: String,
@@ -376,6 +387,23 @@ object AdminApi {
 
     fun resetAdViews(base: String, token: String, id: String) =
         post(base, "/admin/ad-reset-views", token, JSONObject().put("id", id))
+
+    // ---- notifications: broadcast to users + admin alerts ----
+
+    fun broadcast(base: String, token: String, title: String, body: String) =
+        post(base, "/admin/broadcast", token, JSONObject().put("title", title).put("body", body))
+
+    fun adminAlerts(base: String, token: String): AdminAlerts {
+        val o = get(base, "/admin/alerts", token)
+        val arr = o.optJSONArray("items")
+        val items = (0 until (arr?.length() ?: 0)).map { i ->
+            val a = arr!!.getJSONObject(i)
+            AdminAlert(a.optString("id"), a.optString("kind"), a.optString("title"), a.optString("body"), a.optString("ref"), a.optLong("created"))
+        }
+        return AdminAlerts(o.optInt("unread"), items)
+    }
+
+    fun markAlertsSeen(base: String, token: String) = post(base, "/admin/alerts/seen", token, JSONObject())
 
     fun summary(base: String, token: String): AdminStats {
         val o = get(base, "/admin/summary?days=7", token)

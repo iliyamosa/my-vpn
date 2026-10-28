@@ -18,9 +18,15 @@ object NoticesStore {
 
     suspend fun refresh(context: Context) = withContext(Dispatchers.IO) {
         try {
-            val list = AccountApi.notices(base(), viaTunnel = Http.tunnelSocksPort > 0)
-            notices.value = list
-            val newest = list.maxOfOrNull { it.created } ?: 0L
+            val viaTunnel = Http.tunnelSocksPort > 0
+            val curated = AccountApi.notices(base(), viaTunnel = viaTunnel)
+            // Instant admin broadcasts are a separate backend channel, but shown in the same bell.
+            val pushed = try { AccountApi.broadcasts(base(), viaTunnel = viaTunnel) } catch (e: Exception) { emptyList() }
+            val merged = (pushed + curated)
+                .distinctBy { it.id }
+                .sortedByDescending { it.created }
+            notices.value = merged
+            val newest = merged.maxOfOrNull { it.created } ?: 0L
             unread.value = newest > ClientStore(context).lastSeenNoticeAt
         } catch (e: Exception) {
             // keep what we have

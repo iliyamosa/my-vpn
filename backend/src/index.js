@@ -377,6 +377,7 @@ export class Hub {
           if (request.method !== "POST") return json({ error: "method" }, 405);
           return this.handleEvents(await body());
         case "/notices": return json({ notices: A.listNotices(sql) });
+        case "/notifications/broadcasts": return json({ notices: A.listUserBroadcasts(sql) });
         case "/plans": return json({ plans: A.listPlans(sql) });
         case "/avatar": {
           const data = A.getAvatar(sql, qp.get("id") || "");
@@ -436,6 +437,11 @@ export class Hub {
         case "/admin/mission": await admin(); return json(A.adminSaveMission(sql, await body()));
         case "/admin/mission/delete": await admin(); return json(A.adminDeleteMission(sql, (await body()).id));
         case "/admin/settings": await admin(); return json(this.adminSettings(await body()));
+
+        // ---- admin: instant broadcast to all users + admin alerts (payments, etc.)
+        case "/admin/broadcast": await admin(); return json(A.adminBroadcast(sql, await body()));
+        case "/admin/alerts": await admin(); return json(A.listAdminAlerts(sql));
+        case "/admin/alerts/seen": await admin(); return json(A.markAdminAlertsSeen(sql));
 
         // ---- pro servers (names are public; links are secret and go only to paying users)
         case "/pro/showcase": return json({ names: A.proShowcase(sql) });

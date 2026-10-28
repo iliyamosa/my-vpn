@@ -382,5 +382,37 @@ assert.equal(sum.data.adViewsAllTime, 3, "all-time ad views in summary");
 assert.ok(typeof sum.data.adWatchersNow === "number", "live ad-watcher gauge present");
 assert.ok(typeof sum.data.totalAccounts === "number" && typeof sum.data.proAccounts === "number", "account totals present");
 
+// ---- notifications: admin broadcast to users + payment alerts for admin ----
+// admin broadcast shows up in the public user feed (the bell)
+r = await call(hub, "POST", "/admin/broadcast", { title: "خبر مهم", body: "سرور جدید اضافه شد" }, adminToken);
+assert.equal(r.status, 200, JSON.stringify(r.data));
+r = await call(hub, "GET", "/notifications/broadcasts");
+assert.equal(r.status, 200);
+assert.ok(r.data.notices.some((n) => n.title === "خبر مهم" && n.body === "سرور جدید اضافه شد"), "broadcast reaches users");
+// empty broadcast rejected
+r = await call(hub, "POST", "/admin/broadcast", { title: "", body: "" }, adminToken);
+assert.equal(r.status, 400, "empty broadcast rejected");
+// broadcast endpoint needs admin
+r = await call(hub, "POST", "/admin/broadcast", { title: "x", body: "y" });
+assert.equal(r.status, 401, "broadcast needs admin");
+
+// the earlier payment submits created admin alerts
+r = await call(hub, "GET", "/admin/alerts", undefined, adminToken);
+assert.equal(r.status, 200);
+assert.ok(r.data.unread >= 1, "payment submits created admin alerts");
+assert.ok(r.data.items.some((n) => n.kind === "payment"), "a payment alert exists");
+// marking seen clears the unread count
+r = await call(hub, "POST", "/admin/alerts/seen", {}, adminToken);
+assert.equal(r.status, 200);
+r = await call(hub, "GET", "/admin/alerts", undefined, adminToken);
+assert.equal(r.data.unread, 0, "unread resets after seen");
+// a brand-new payment submit bumps unread again
+r = await call(hub, "POST", "/pay/order/create", { login: "payer", password: "secret1", planId: payPlan, method: "card" });
+const nId = r.data.orderId, nTok = r.data.token;
+r = await call(hub, "POST", "/pay/order/submit", { orderId: nId, token: nTok, last6: "778899", trackRef: "TRKNOTIFY", paidApprox: "10:00" });
+assert.equal(r.status, 200, JSON.stringify(r.data));
+r = await call(hub, "GET", "/admin/alerts", undefined, adminToken);
+assert.equal(r.data.unread, 1, "new payment creates one unread admin alert");
+
 assert.equal(dayOf(Date.UTC(2026, 9, 20, 20, 31)), "2026-10-21");
 console.log("ALL BACKEND TESTS PASSED");

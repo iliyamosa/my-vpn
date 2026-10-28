@@ -184,6 +184,9 @@ object AccountApi {
 
     fun notices(base: String, viaTunnel: Boolean = false): List<Notice> =
         parseNotices(get(base, "/notices", null, viaTunnel).optJSONArray("notices"))
+    /** Instant admin→users broadcasts (separate from the curated notices, shown in the same bell). */
+    fun broadcasts(base: String, viaTunnel: Boolean = false): List<Notice> =
+        parseNotices(get(base, "/notifications/broadcasts", null, viaTunnel).optJSONArray("notices"))
     fun plans(base: String, viaTunnel: Boolean = false): List<Plan> =
         parsePlans(get(base, "/plans", null, viaTunnel).optJSONArray("plans"))
 

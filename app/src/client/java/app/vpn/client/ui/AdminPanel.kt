@@ -24,9 +24,11 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,13 +40,18 @@ import app.vpn.R
 import app.vpn.client.MainActivity
 import app.vpn.client.data.ClientStore
 import app.vpn.client.data.ServerRepository
+import app.vpn.common.AdminApi
 import app.vpn.common.Backend
+import app.vpn.common.faDigits
 import app.vpn.ui.AppCard
 import app.vpn.ui.AppColors
 import app.vpn.ui.AppIcon
 import app.vpn.ui.GradientButton
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-enum class AdminSection { HOME, ACCOUNTS, PRO_SERVERS, PLANS, MISSIONS, NOTICES, PAYMENT, CRYPTO_ORDERS, AUDIT, ADS, STATS, CONFIG }
+enum class AdminSection { HOME, ACCOUNTS, PRO_SERVERS, PLANS, MISSIONS, NOTICES, PAYMENT, CRYPTO_ORDERS, AUDIT, ADS, STATS, NOTIFY, CONFIG }
 
 /** Resolves the admin session token and backend base for the admin API calls. */
 fun adminToken(activity: MainActivity): String = ClientStore(activity).adminToken
@@ -68,12 +75,22 @@ fun AdminPanel(activity: MainActivity, onExit: () -> Unit) {
         AdminSection.AUDIT -> AdminAuditLog(activity) { section = AdminSection.HOME }
         AdminSection.ADS -> AdminAds(activity) { section = AdminSection.HOME }
         AdminSection.STATS -> AdminStats(activity) { section = AdminSection.HOME }
+        AdminSection.NOTIFY -> AdminNotify(activity) { section = AdminSection.HOME }
         AdminSection.CONFIG -> AdminConfig(activity) { section = AdminSection.HOME }
     }
 }
 
 @Composable
 private fun AdminHome(activity: MainActivity, onExit: () -> Unit, open: (AdminSection) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var alerts by remember { mutableStateOf(0) }
+    // Refresh the "payment waiting for review" badge whenever the admin home is shown.
+    LaunchedEffect(Unit) {
+        scope.launch {
+            try { alerts = withContext(Dispatchers.IO) { AdminApi.adminAlerts(adminBase(), adminToken(activity)).unread } }
+            catch (e: Exception) { /* no badge on failure */ }
+        }
+    }
     Column(Modifier.fillMaxSize()) {
         ScreenHeader("پنل مدیریت", onBack = onExit)
         Column(
@@ -89,9 +106,10 @@ private fun AdminHome(activity: MainActivity, onExit: () -> Unit, open: (AdminSe
                 AdminMenuRow(R.drawable.ic_star, "سرورهای پرو", "افزودن و نام‌گذاری سرورهای ویژه") { open(AdminSection.PRO_SERVERS) }
                 AdminMenuRow(R.drawable.ic_crown, "پلن‌های اشتراک", "قیمت، مدت و هزینهٔ امتیازی") { open(AdminSection.PLANS) }
                 AdminMenuRow(R.drawable.ic_gift, "ماموریت‌ها", "تعریف ماموریت و امتیاز") { open(AdminSection.MISSIONS) }
-                AdminMenuRow(R.drawable.ic_bell, "اعلان‌ها", "ارسال پیام به کاربران") { open(AdminSection.NOTICES) }
+                AdminMenuRow(R.drawable.ic_bell, "اعلان‌ها (بُرد اعلان)", "اطلاعیه‌های همیشگی با لینک و دکمه") { open(AdminSection.NOTICES) }
+                AdminMenuRow(R.drawable.ic_bell, "پیام فوری و هشدارها", "ارسال پیام آنی به همه + هشدار واریزی‌ها", badge = alerts) { open(AdminSection.NOTIFY) }
                 AdminMenuRow(R.drawable.ic_wallet, "روش‌های پرداخت", "کریپتو (TON و…) و کارت‌به‌کارت") { open(AdminSection.PAYMENT) }
-                AdminMenuRow(R.drawable.ic_gift, "تأیید پرداخت‌ها", "تأیید واریزی‌های کریپتو و کارت کاربران") { open(AdminSection.CRYPTO_ORDERS) }
+                AdminMenuRow(R.drawable.ic_gift, "تأیید پرداخت‌ها", "تأیید واریزی‌های کریپتو و کارت کاربران", badge = alerts) { open(AdminSection.CRYPTO_ORDERS) }
                 AdminMenuRow(R.drawable.ic_info, "گزارش رویدادها", "تاریخچهٔ تأیید/رد پرداخت‌ها و تغییرات") { open(AdminSection.AUDIT) }
                 AdminMenuRow(R.drawable.ic_star, "تبلیغات", "تبلیغ تمام‌صفحه و بنر صفحهٔ اصلی، محدودیت و بازدید") { open(AdminSection.ADS) }
                 AdminMenuRow(R.drawable.ic_user, "آمار زنده", "کاربران، آنلاین، پرو و بازدید تبلیغات") { open(AdminSection.STATS) }
@@ -110,7 +128,7 @@ private fun AdminHome(activity: MainActivity, onExit: () -> Unit, open: (AdminSe
 }
 
 @Composable
-private fun AdminMenuRow(icon: Int, title: String, subtitle: String, last: Boolean = false, onClick: () -> Unit) {
+private fun AdminMenuRow(icon: Int, title: String, subtitle: String, last: Boolean = false, badge: Int = 0, onClick: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -123,6 +141,18 @@ private fun AdminMenuRow(icon: Int, title: String, subtitle: String, last: Boole
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleSmall)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted)
+        }
+        if (badge > 0) {
+            Box(
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(AppColors.Danger).padding(horizontal = 8.dp, vertical = 2.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    (if (badge > 99) "99+" else badge.toString()).faDigits(),
+                    style = MaterialTheme.typography.bodySmall, color = Color.White,
+                )
+            }
+            Spacer(Modifier.width(6.dp))
         }
     }
     if (!last) Box(Modifier.fillMaxWidth().height(1.dp).background(AppColors.Border.copy(alpha = 0.4f)))

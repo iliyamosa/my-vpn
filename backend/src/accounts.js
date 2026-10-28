@@ -151,6 +151,12 @@ export function initAccountTables(sql) {
   // The welcome free-pro gift is given to a device only once (same anti-abuse reasoning as invites).
   sql.exec(`CREATE TABLE IF NOT EXISTS welcomed_devices (
     device_id TEXT PRIMARY KEY, account_id TEXT, created INTEGER)`);
+  // App notifications — SEPARATE from the curated "notices" board. Two audiences:
+  //   'all'   = an instant broadcast the admin pushes to every user (shown in the bell),
+  //   'admin' = an alert for the admin (e.g. a new payment is waiting for review).
+  sql.exec(`CREATE TABLE IF NOT EXISTS app_notifications (
+    id TEXT PRIMARY KEY, audience TEXT NOT NULL, kind TEXT DEFAULT 'info',
+    title TEXT, body TEXT, ref TEXT DEFAULT '', created INTEGER)`);
 }
 
 /** Records a sensitive admin action. Never stores secrets, only what was changed. */
@@ -164,6 +170,69 @@ export function audit(sql, actor, action, target, detail) {
 export function adminListAuditLogs(sql, limit = 100) {
   return all(sql, "SELECT * FROM audit_logs ORDER BY created DESC LIMIT ?", Math.max(1, Math.min(500, Number(limit) || 100)))
     .map((r) => ({ id: r.id, actor: r.actor, action: r.action, target: r.target, detail: r.detail, created: Number(r.created || 0) }));
+}
+
+// ---------------------------------------------------------------- app notifications
+
+/** Inserts a notification for an audience ('all' users, or 'admin'), pruning old rows. */
+export function addNotification(sql, audience, kind, title, body, ref = "") {
+  const aud = audience === "admin" ? "admin" : "all";
+  sql.exec(
+    "INSERT INTO app_notifications (id, audience, kind, title, body, ref, created) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    newId(), aud, String(kind || "info").slice(0, 24),
+    String(title || "").slice(0, 120), String(body || "").slice(0, 1000), String(ref || "").slice(0, 80), Date.now(),
+  );
+  // keep this feed small: drop rows older than 90 days, and cap each audience at the newest 300
+  const cutoff = Date.now() - 90 * 86400000;
+  try {
+    sql.exec("DELETE FROM app_notifications WHERE audience = ? AND created < ?", aud, cutoff);
+    sql.exec(
+      `DELETE FROM app_notifications WHERE audience = ? AND id NOT IN (
+         SELECT id FROM app_notifications WHERE audience = ? ORDER BY created DESC LIMIT 300)`,
+      aud, aud,
+    );
+  } catch (e) { /* pruning must never break the insert */ }
+}
+
+/** The instant admin→users broadcasts, shaped like notices so the bell can show them. */
+export function listUserBroadcasts(sql) {
+  return all(sql, "SELECT * FROM app_notifications WHERE audience = 'all' ORDER BY created DESC LIMIT 50")
+    .map((r) => ({ id: r.id, title: r.title || "", body: r.body || "", link: "", button: "", created: Number(r.created || 0) }));
+}
+
+/** Admin pushes an instant message to every user. */
+export function adminBroadcast(sql, body) {
+  const title = String((body && body.title) || "").trim().slice(0, 120);
+  const text = String((body && body.body) || "").trim().slice(0, 1000);
+  if (!title && !text) throw new ApiError(400, "متن پیام را وارد کنید.");
+  addNotification(sql, "all", "broadcast", title, text, "");
+  return { ok: true };
+}
+
+/** Records an admin alert when a user submits a payment for review. */
+export function notifyPaymentSubmitted(sql, order) {
+  try {
+    const acc = order && order.account_id ? one(sql, "SELECT username FROM accounts WHERE id = ?", order.account_id) : null;
+    const who = acc && acc.username ? "@" + acc.username : "یک کاربر";
+    const method = (order && order.method) === "card" ? "کارت‌به‌کارت" : "کریپتو";
+    addNotification(sql, "admin", "payment", "واریز جدید در انتظار بررسی",
+      `${who} یک پرداخت ${method} ثبت کرد. لطفاً در بخش «تأیید پرداخت‌ها» بررسی کن.`, order && order.id ? order.id : "");
+  } catch (e) { /* never block the payment */ }
+}
+
+/** Admin alerts (payments, etc.) plus how many are newer than the admin last looked. */
+export function listAdminAlerts(sql) {
+  const seen = Number(kvGet(sql, "admin_alert_seen", "0")) || 0;
+  const items = all(sql, "SELECT * FROM app_notifications WHERE audience = 'admin' ORDER BY created DESC LIMIT 50")
+    .map((r) => ({ id: r.id, kind: r.kind || "info", title: r.title || "", body: r.body || "", ref: r.ref || "", created: Number(r.created || 0) }));
+  const unread = items.filter((n) => n.created > seen).length;
+  return { unread, items };
+}
+
+/** Marks every admin alert as read (moves the "seen" watermark to now). */
+export function markAdminAlertsSeen(sql) {
+  kvSet(sql, "admin_alert_seen", String(Date.now()));
+  return { ok: true };
 }
 
 /** Adds a column if it isn't already there (SQLite has no IF NOT EXISTS for columns). */
@@ -763,6 +832,7 @@ export function submitOrder(sql, body) {
   }
   sql.exec("UPDATE crypto_orders SET status = 'PENDING_REVIEW', txid = ?, src_last6 = ?, track_ref = ?, paid_approx = ?, submitted_at = ? WHERE id = ? AND status = 'AWAITING_PAYMENT'",
     trackRef, last6, trackRef, paidApprox, Date.now(), o.id);
+  notifyPaymentSubmitted(sql, o);
   return { ok: true, status: "PENDING_REVIEW" };
 }
 
@@ -784,6 +854,7 @@ export function createManualOrder(sql, acc, body) {
     `INSERT INTO crypto_orders (id, account_id, plan_id, asset, txid, status, created, method, amount, currency, track_ref, submitted_at)
      VALUES (?, ?, ?, ?, ?, 'PENDING_REVIEW', ?, ?, ?, 'toman', ?, ?)`,
     id, acc.id, plan.id, label, ref, now, method, amount, ref, now);
+  notifyPaymentSubmitted(sql, { id, account_id: acc.id, method });
   return { ok: true, id };
 }
 // Back-compat alias.
