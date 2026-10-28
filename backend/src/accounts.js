@@ -557,6 +557,27 @@ export async function googleUpsertLogin(sql, profile, body) {
   return { token, account: publicAccount(sql, acc), isNew: false };
 }
 
+// Fixed id for the admin's own user account (so the panel also has every normal-user feature).
+const ADMIN_ACCOUNT_ID = "admin-user";
+
+/** Lazily creates (once) a real, permanently-pro user account for the admin and returns it. */
+async function ensureAdminAccount(sql, wantUser) {
+  let acc = one(sql, "SELECT * FROM accounts WHERE id = ?", ADMIN_ACCOUNT_ID);
+  if (acc) return acc;
+  let uname = wantUser || "admin";
+  if (one(sql, "SELECT 1 FROM accounts WHERE lower(username) = lower(?)", uname)) uname = `${uname}_admin`;
+  if (one(sql, "SELECT 1 FROM accounts WHERE lower(username) = lower(?)", uname)) uname = "admin_" + Math.random().toString(36).slice(2, 8);
+  const email = "admin+" + Math.random().toString(36).slice(2, 10) + "@fairos.local";
+  const now = Date.now();
+  const farFuture = 4102444800000; // ~year 2100: the admin is always pro
+  const passHash = await hashPassword(randomToken());
+  sql.exec(
+    "INSERT INTO accounts (id, email, username, display_name, pass_hash, points, pro_until, created, updated) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)",
+    ADMIN_ACCOUNT_ID, email, uname, "مدیر", passHash, farFuture, now, now,
+  );
+  return one(sql, "SELECT * FROM accounts WHERE id = ?", ADMIN_ACCOUNT_ID);
+}
+
 export async function adminLogin(sql, env, body) {
   const user = String(body.username || "").trim();
   const pass = String(body.password || "");
@@ -567,7 +588,24 @@ export async function adminLogin(sql, env, body) {
     throw new ApiError(401, "نام کاربری یا رمز ادمین درست نیست.");
   }
   const token = await makeSession(sql, "admin", "", true, ADMIN_SESSION_DAYS);
-  return { token, admin: true, username: wantUser };
+  // Also hand the admin a normal user session, so the management panel carries every
+  // user-side capability (connect, pro, points, profile) in addition to the admin tools.
+  let userToken = "", account = null;
+  try {
+    const acc = await ensureAdminAccount(sql, wantUser);
+    const device = String(body.deviceId || "").trim();
+    const okDevice = /^[A-Za-z0-9-]{8,64}$/.test(device) ? device : "";
+    userToken = await makeSession(sql, acc.id, okDevice, false, SESSION_DAYS);
+    if (okDevice) {
+      sql.exec(
+        `INSERT INTO account_devices (account_id, device_id, label, created, last_seen) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(account_id, device_id) DO UPDATE SET last_seen = excluded.last_seen`,
+        acc.id, okDevice, String(body.model || "").slice(0, 60) || "مدیر", Date.now(), Date.now(),
+      );
+    }
+    account = publicAccount(sql, acc);
+  } catch (e) { /* the admin can still use the panel even if the user session fails */ }
+  return { token, userToken, account, admin: true, username: wantUser };
 }
 
 // ---------------------------------------------------------------- profile (me)
@@ -984,8 +1022,9 @@ export function adminDeleteMission(sql, id) {
 export function adminListAccounts(sql, q, offset, limit) {
   const lim = Math.max(1, Math.min(100, Number(limit) || 50));
   const off = Math.max(0, Number(offset) || 0);
-  let where = "", args = [];
-  if (q) { where = "WHERE email LIKE ? OR username LIKE ? OR display_name LIKE ?"; const p = `%${q}%`; args = [p, p, p]; }
+  // The admin's own synthetic account is hidden from the user list and counts.
+  let where = "WHERE id != 'admin-user'", args = [];
+  if (q) { where += " AND (email LIKE ? OR username LIKE ? OR display_name LIKE ?)"; const p = `%${q}%`; args = [p, p, p]; }
   const total = Number(one(sql, `SELECT COUNT(*) AS n FROM accounts ${where}`, ...args).n || 0);
   const rows = all(sql, `SELECT * FROM accounts ${where} ORDER BY created DESC LIMIT ? OFFSET ?`, ...args, lim, off);
   const now = Date.now();

@@ -439,7 +439,18 @@ export class Hub {
         case "/admin/settings": await admin(); return json(this.adminSettings(await body()));
 
         // ---- admin: instant broadcast to all users + admin alerts (payments, etc.)
-        case "/admin/broadcast": await admin(); return json(A.adminBroadcast(sql, await body()));
+        case "/admin/broadcast": {
+          await admin();
+          const b = await body();
+          const res = A.adminBroadcast(sql, b);
+          // Nudge every connected app to pop a system notification immediately.
+          this.broadcast(JSON.stringify({
+            type: "notice",
+            title: String(b.title || "").slice(0, 120),
+            body: String(b.body || "").slice(0, 1000),
+          }));
+          return json(res);
+        }
         case "/admin/alerts": await admin(); return json(A.listAdminAlerts(sql));
         case "/admin/alerts/seen": await admin(); return json(A.markAdminAlertsSeen(sql));
 
@@ -1238,7 +1249,7 @@ export class Hub {
 
     // Real account (user) totals, separate from anonymous device telemetry.
     const acc = this.sql.exec(
-      "SELECT COUNT(*) AS total, SUM(CASE WHEN pro_until > ? THEN 1 ELSE 0 END) AS pro FROM accounts",
+      "SELECT COUNT(*) AS total, SUM(CASE WHEN pro_until > ? THEN 1 ELSE 0 END) AS pro FROM accounts WHERE id != 'admin-user'",
       now,
     ).toArray()[0] || {};
     const adTotalsSum = this.sql.exec("SELECT COALESCE(SUM(views),0) AS v FROM ad_totals").toArray()[0] || {};

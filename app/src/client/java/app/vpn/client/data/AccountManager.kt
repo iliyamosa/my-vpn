@@ -254,7 +254,11 @@ object AccountManager {
 
     private fun logoutLocal(context: Context) {
         val showcase = me.value?.proShowcase ?: emptyList()
-        ClientStore(context).clearSession()
+        val store = ClientStore(context)
+        store.clearSession()
+        // A full sign-out also drops admin elevation.
+        store.adminToken = ""
+        isAdmin.value = false
         account.value = null
         me.value = null
         avatar.value = null
@@ -263,17 +267,26 @@ object AccountManager {
     }
 
     suspend fun adminLogin(context: Context, username: String, password: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val store = ClientStore(context)
         try {
-            val token = AccountApi.adminLogin(base(), username, password)
-            if (token.isBlank()) return@withContext Result.failure(Exception("ورود ناموفق بود."))
-            ClientStore(context).adminToken = token
+            val auth = AccountApi.adminLogin(base(), username, password, store.deviceId, model())
+            if (auth.adminToken.isBlank()) return@withContext Result.failure(Exception("ورود ناموفق بود."))
+            store.adminToken = auth.adminToken
             isAdmin.value = true
+            // The admin also gets a real user session, so the app shows every user feature too.
+            if (auth.userToken.isNotBlank()) {
+                store.authToken = auth.userToken
+                auth.account?.let { cache(context, it) }
+                loggedIn.value = true
+                refreshMe(context)
+            }
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
+    /** Leaves only the admin panel (keeps the admin signed in as a normal user). */
     fun adminLogout(context: Context) {
         ClientStore(context).adminToken = ""
         isAdmin.value = false

@@ -121,9 +121,15 @@ object Realtime {
                 if (text == "pong") return
                 try {
                     val o = JSONObject(text)
-                    if (o.optString("type") == "config") {
-                        val cfg = RemoteConfig.fromJson(o.getJSONObject("config"))
-                        ServerRepository.applyRemoteConfig(context, cfg)
+                    when (o.optString("type")) {
+                        "config" -> {
+                            val cfg = RemoteConfig.fromJson(o.getJSONObject("config"))
+                            ServerRepository.applyRemoteConfig(context, cfg)
+                        }
+                        // Admin pushed an instant message: refresh the feed, which pops a
+                        // system notification for the new broadcast (works even with the UI closed
+                        // while the VPN's foreground service keeps this socket alive).
+                        "notice" -> AppScope.scope.launch { NoticesStore.refresh(context) }
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "bad message: ${e.message}")

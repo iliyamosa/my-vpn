@@ -414,5 +414,20 @@ assert.equal(r.status, 200, JSON.stringify(r.data));
 r = await call(hub, "GET", "/admin/alerts", undefined, adminToken);
 assert.equal(r.data.unread, 1, "new payment creates one unread admin alert");
 
+// ---- admin also gets a full user session (panel carries user features too) ----
+r = await call(hub, "POST", "/auth/admin-login", { username: "iliyamosa", password: "admintest", deviceId: "device-admin0001", model: "Admin Phone" });
+assert.equal(r.status, 200);
+assert.ok(r.data.token, "admin token returned");
+assert.ok(r.data.userToken, "admin also gets a user session token");
+assert.ok(r.data.account && r.data.account.isPro, "admin user account is pro");
+const adminUserTok = r.data.userToken;
+r = await call(hub, "GET", "/me", undefined, adminUserTok);
+assert.equal(r.status, 200, "admin user session works on /me");
+assert.equal(r.data.account.id, "admin-user", "admin user account id is fixed");
+assert.ok(r.data.account.isPro, "admin sees pro on /me");
+// the synthetic admin account stays out of the user list + counts
+r = await call(hub, "GET", "/admin/accounts", undefined, adminToken);
+assert.ok(!r.data.accounts.some((a) => a.id === "admin-user"), "admin account hidden from user list");
+
 assert.equal(dayOf(Date.UTC(2026, 9, 20, 20, 31)), "2026-10-21");
 console.log("ALL BACKEND TESTS PASSED");

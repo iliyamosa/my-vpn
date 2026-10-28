@@ -128,9 +128,13 @@ object AccountApi {
         return authFrom(o)
     }
 
-    fun adminLogin(base: String, username: String, password: String): String {
-        val o = post(base, "/auth/admin-login", JSONObject().put("username", username).put("password", password))
-        return o.optString("token")
+    /** The admin session plus a real user session (so the panel also has user features). */
+    class AdminAuth(val adminToken: String, val userToken: String, val account: Account?)
+    fun adminLogin(base: String, username: String, password: String, deviceId: String, model: String): AdminAuth {
+        val o = post(base, "/auth/admin-login", JSONObject()
+            .put("username", username).put("password", password).put("deviceId", deviceId).put("model", model))
+        val accObj = o.optJSONObject("account")
+        return AdminAuth(o.optString("token"), o.optString("userToken"), accObj?.let { Account.from(it) })
     }
 
     /** The backend's configured Google Web client id (empty when Google Sign-In isn't set up). */

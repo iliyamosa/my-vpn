@@ -78,6 +78,11 @@ class ClientStore(context: Context) {
         get() = prefs.getLong("last_seen_notice", 0L)
         set(v) = prefs.edit().putLong("last_seen_notice", v).apply()
 
+    /** Newest admin broadcast we have already shown as a system notification. */
+    var lastNotifiedAt: Long
+        get() = prefs.getLong("last_notified_at", 0L)
+        set(v) = prefs.edit().putLong("last_notified_at", v).apply()
+
     var lastLink: String
         get() = prefs.getString("last_link", "").orEmpty()
         set(v) = prefs.edit().putString("last_link", v).apply()

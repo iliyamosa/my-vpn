@@ -28,9 +28,28 @@ object NoticesStore {
             notices.value = merged
             val newest = merged.maxOfOrNull { it.created } ?: 0L
             unread.value = newest > ClientStore(context).lastSeenNoticeAt
+            // Fire a real system notification for brand-new admin broadcasts (push-like).
+            maybeNotify(context, pushed)
         } catch (e: Exception) {
             // keep what we have
         }
+    }
+
+    /** Posts device notifications for admin broadcasts newer than the last one we showed. */
+    private fun maybeNotify(context: Context, broadcasts: List<Notice>) {
+        val store = ClientStore(context)
+        val newest = broadcasts.maxOfOrNull { it.created } ?: 0L
+        val last = store.lastNotifiedAt
+        if (last == 0L) {
+            // First run: treat everything already on the server as delivered (don't spam).
+            if (newest > 0L) store.lastNotifiedAt = newest
+            return
+        }
+        val fresh = broadcasts.filter { it.created > last }.sortedBy { it.created }.takeLast(5)
+        fresh.forEach { n ->
+            AppNotifications.show(context, n.title, n.body, id = 7000 + (n.created % 100000).toInt())
+        }
+        if (newest > last) store.lastNotifiedAt = newest
     }
 
     fun markSeen(context: Context) {
